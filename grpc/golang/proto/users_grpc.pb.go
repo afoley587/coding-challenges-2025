@@ -28,9 +28,14 @@ const (
 // GrpcGolangAPIClient is the client API for GrpcGolangAPI service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// GrpcGolangAPI defines RPCs for user management.
 type GrpcGolangAPIClient interface {
+	// GetUser retrieves a single user by id.
 	GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*User, error)
+	// ListUsers streams all users back to the caller.
 	ListUsers(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[User], error)
+	// CreateUser creates a new user.
 	CreateUser(ctx context.Context, in *CreateUserRequest, opts ...grpc.CallOption) (*User, error)
 }
 
@@ -84,9 +89,14 @@ func (c *grpcGolangAPIClient) CreateUser(ctx context.Context, in *CreateUserRequ
 // GrpcGolangAPIServer is the server API for GrpcGolangAPI service.
 // All implementations must embed UnimplementedGrpcGolangAPIServer
 // for forward compatibility.
+//
+// GrpcGolangAPI defines RPCs for user management.
 type GrpcGolangAPIServer interface {
+	// GetUser retrieves a single user by id.
 	GetUser(context.Context, *GetUserRequest) (*User, error)
+	// ListUsers streams all users back to the caller.
 	ListUsers(*emptypb.Empty, grpc.ServerStreamingServer[User]) error
+	// CreateUser creates a new user.
 	CreateUser(context.Context, *CreateUserRequest) (*User, error)
 	mustEmbedUnimplementedGrpcGolangAPIServer()
 }

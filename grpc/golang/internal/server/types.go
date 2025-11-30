@@ -9,4 +9,3 @@ type GrpcGolangApiServer struct {
 	pb.UnimplementedGrpcGolangAPIServer
 	r *redis.Client
 }
-

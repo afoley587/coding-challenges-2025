@@ -4,12 +4,13 @@ option go_package = "github.com/afoley587/coding-challenges-2025/grpc-golang-api
 
 import "google/protobuf/empty.proto";
 
+// GrpcGolangAPI defines RPCs for user management.
 service GrpcGolangAPI {
-
+    // GetUser retrieves a single user by id.
     rpc GetUser(GetUserRequest) returns (User) {}
-
+    // ListUsers streams all users back to the caller.
     rpc ListUsers(google.protobuf.Empty) returns (stream User) {}
-
+    // CreateUser creates a new user.
     rpc CreateUser(CreateUserRequest) returns (User) {}
 }
 
@@ -19,14 +20,11 @@ message GetUserRequest {
 
 message CreateUserRequest {
     required string name = 1;
-
     required string email = 2;
 }
 
 message User {
     required int32 id = 1;
-
     required string name = 2;
-
-    required string email = 3; 
+    required string email = 3;
 }
