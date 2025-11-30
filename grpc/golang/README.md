@@ -1,20 +1,20 @@
 # gRPC Golang API Example
 
-This directory contains a small example of a gRPC service written in Go.  
+This directory contains a small example of a gRPC service written in Go.
 The service exposes three RPCs for managing users:
 
 * **CreateUser** – create a new user by name and email.
 * **GetUser** – retrieve a user by numeric ID.
 * **ListUsers** – stream all users to the client.
 
-The server stores users via an abstract `UserStore` interface.  
+The server stores users via an abstract `UserStore` interface.
 A Redis‑backed store (`internal/store/redis.go`) is used by default, but
 an in‑memory implementation (`internal/store/memory.go`) is provided
-for tests and development.  
-The gRPC service itself is implemented in `internal/server/grpc_server.go` 
+for tests and development.
+The gRPC service itself is implemented in `internal/server/grpc_server.go`
 and is registered and run by `internal/server/server.go`.
 
-The command‑line interface is built with 
+The command‑line interface is built with
 [Cobra](https://github.com/spf13/cobra).
 It provides subcommands for running the server and interacting with it
 as a client.
@@ -22,7 +22,7 @@ as a client.
 ## Generating gRPC code
 
 To regenerate the Go stubs from the `proto/users.proto` definition you
-need `protoc` with the Go and gRPC plugins. 
+need `protoc` with the Go and gRPC plugins.
 Run the following commands from within the `grpc/golang` directory:
 
 ```bash
