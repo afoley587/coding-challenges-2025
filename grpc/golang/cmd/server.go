@@ -1,51 +1,44 @@
 package cmd
 
 import (
+	"github.com/spf13/cobra"
 	"log"
-	"net"
-
-    "github.com/spf13/cobra"
-
-	pb "github.com/afoley587/coding-challenges-2025/grpc-golang-api/proto"
 
 	"github.com/afoley587/coding-challenges-2025/grpc-golang-api/internal/server"
-	"google.golang.org/grpc"
+	"github.com/afoley587/coding-challenges-2025/grpc-golang-api/internal/store"
 )
 
-var listenAddr string
-var redisAddr string
+var (
+	listenAddr string
+	redisAddr  string
+	redisPassword string
+)
 
+// serverCmd is the top‑level command for server operations.
 var serverCmd = &cobra.Command{
-    Use:     "server",
-    Aliases: []string{},
-    Short:   "Server commands.",
-    Long:    "Commands related to running the server.",
+	Use:   "server",
+	Short: "Run the gRPC server",
+	Long:  "Commands related to running the gRPC server.",
 }
 
+// runServerCmd starts the gRPC server with the specified flags.
 var runServerCmd = &cobra.Command{
-	Use:   "run-server",
-	Short: "Run the server",
-	Run: func(cmd *cobra.Command, args []string) {
-		runServer(listenAddr, redisAddr)
+	Use:   "run",
+	Short: "Start the gRPC server",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		st, err := store.NewRedisStore(redisAddr, redisPassword, nil)
+		if err != nil {
+			return err
+		}
+		log.Printf("Starting server on %s (redis: %s)", listenAddr, redisAddr)
+		return server.Run(listenAddr, st)
 	},
 }
 
 func init() {
-    serverCmd.Flags().StringVarP(&listenAddr, "server-addr", "s", "0.0.0.0:9090", "Server address to listen on")
-    serverCmd.Flags().StringVarP(&redisAddr, "redis-addr", "r", "127.0.0.1:6379", "Redis address to connect to")
+	runServerCmd.Flags().StringVarP(&listenAddr, "addr", "a", "0.0.0.0:9090", "Address to listen on")
+	runServerCmd.Flags().StringVarP(&redisPassword, "redis-password", "p", "", "Redis password")
+	runServerCmd.Flags().StringVarP(&redisAddr, "redis-address", "r", "127.0.0.1:6379", "Redis address")
 	serverCmd.AddCommand(runServerCmd)
-    rootCmd.AddCommand(serverCmd)
-}
-
-
-func runServer(listenAddr string, redisAddr string) {
-	lis, err := net.Listen("tcp", listenAddr)
-
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-	grpcServer := grpc.NewServer()
-	pb.RegisterGrpcGolangAPIServer(grpcServer, server.NewServer(redisAddr))
-	log.Println("Registered")
-	grpcServer.Serve(lis)
+	rootCmd.AddCommand(serverCmd)
 }
