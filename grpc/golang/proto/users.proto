@@ -1,0 +1,32 @@
+package proto;
+
+option go_package = "github.com/afoley587/coding-challenges-2025/grpc-golang-api";
+
+import "google/protobuf/empty.proto";
+
+service GrpcGolangAPI {
+
+    rpc GetUser(GetUserRequest) returns (User) {}
+
+    rpc ListUsers(google.protobuf.Empty) returns (stream User) {}
+
+    rpc CreateUser(CreateUserRequest) returns (User) {}
+}
+
+message GetUserRequest {
+    required int32 id = 1;
+}
+
+message CreateUserRequest {
+    required string name = 1;
+
+    required string email = 2;
+}
+
+message User {
+    required int32 id = 1;
+
+    required string name = 2;
+
+    required string email = 3; 
+}
