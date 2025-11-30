@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	listenAddr string
-	redisAddr  string
+	listenAddr    string
+	redisAddr     string
 	redisPassword string
 )
 
