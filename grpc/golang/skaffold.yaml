@@ -1,0 +1,36 @@
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: grpc-golang-app
+
+build:
+  artifacts:
+    - image: afoley587/coding-challenges/grpc-golang
+      context: .
+      docker:
+        dockerfile: Dockerfile
+      sync:
+        manual:
+          - src: "**/*.go"
+            dest: /app
+          - src: "go.mod"
+            dest: /app
+          - src: "go.sum"
+            dest: /app
+
+manifests:
+  rawYaml:
+    - manifests/*.yaml
+
+
+deploy:
+  kubeContext: minikube
+
+  kubectl: {}
+
+portForward:
+  - resourceType: service
+    resourceName: server
+    port: 9090
+    localPort: 9090
