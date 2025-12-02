@@ -12,8 +12,8 @@ build: proto  ## Build golang application
 clean:  ## Removes build application binaries
 	go clean
 
-docker:  ## Build server-side docker compose stack
-	docker compose up -d --build
+docker:  ## Build docker images
+	docker build . -t afoley587/coding-challenges/grpc-golang:latest
 
 fmt:  ## Run go fmt to format code
 	go fmt
