@@ -40,11 +40,11 @@ It is assumed the following tools are installed:
 > [`asdf`](https://asdf-vm.com/).
 > If using `asdf`, you can automate the installation process with:
 >
->     ```bash
->     for plugin in $(awk '{ print $1 }' ../../.tool-versions); do asdf plugin add "$plugin"; done
->     asdf install
->     asdf reshim
->     ```
+> ```bash
+> for plugin in $(awk '{ print $1 }' ../../.tool-versions); do asdf plugin add "$plugin"; done
+> asdf install
+> asdf reshim
+> ```
 
 ## Generating gRPC code
 
