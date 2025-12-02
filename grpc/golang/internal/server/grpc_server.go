@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 
 	"github.com/afoley587/coding-challenges-2025/grpc-golang-api/internal/store"
 	pb "github.com/afoley587/coding-challenges-2025/grpc-golang-api/proto"
@@ -34,6 +35,7 @@ func (s *grpcServer) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.U
 	if req == nil || req.Id == nil {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
+	log.Printf("Fetching user %d", req.GetId())
 	user, err := s.store.GetUser(ctx, req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get user failed: %v", err)
@@ -47,6 +49,7 @@ func (s *grpcServer) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.U
 // ListUsers streams all users to the client.  If no users exist, the
 // stream is closed without sending any messages.
 func (s *grpcServer) ListUsers(_ *emptypb.Empty, stream pb.GrpcGolangAPI_ListUsersServer) error {
+	log.Printf("Fetching users")
 	users, err := s.store.ListUsers(stream.Context())
 	if err != nil {
 		return status.Errorf(codes.Internal, "list users failed: %v", err)
@@ -66,6 +69,7 @@ func (s *grpcServer) CreateUser(ctx context.Context, req *pb.CreateUserRequest) 
 	if req == nil || req.Name == nil || req.Email == nil {
 		return nil, status.Error(codes.InvalidArgument, "name and email are required")
 	}
+	log.Printf("Creating user with email=%s, name=%s", req.GetName(), req.GetEmail())
 	user, err := s.store.CreateUser(ctx, req.GetName(), req.GetEmail())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create user failed: %v", err)

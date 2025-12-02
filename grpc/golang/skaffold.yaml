@@ -1,0 +1,44 @@
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: grpc-golang-app-redis
+
+manifests:
+  rawYaml:
+    - manifests/redis.yaml
+
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: grpc-golang-app-server
+
+build:
+  artifacts:
+    - image: afoley587/coding-challenges/grpc-golang
+      context: .
+      docker:
+        dockerfile: Dockerfile
+
+manifests:
+  rawYaml:
+    - manifests/server.yaml
+
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+
+portForward:
+  - resourceType: service
+    resourceName: server
+    port: 9090
+    localPort: 9090
+
+requires:
+  - configs:
+      - grpc-golang-app-redis
