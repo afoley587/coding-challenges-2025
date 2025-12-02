@@ -12,6 +12,11 @@ build: proto  ## Build golang application
 clean:  ## Removes build application binaries
 	go clean
 
+certs:  ## Generates the mTLS certs
+	@echo "Generating TLS and mTLS certificates..."
+	@bash scripts/generate-certs.sh
+	@echo "Done."
+
 docker:  ## Build docker images
 	docker build . -t afoley587/coding-challenges/grpc-golang:latest
 
@@ -26,10 +31,48 @@ proto:  ## Generate protocol buffer code
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		proto/users.proto
 
-run-server:  ## Runs the server-side application
+run-client-mtls:  ## Runs a few test client commands with mTLS enabled
+	@echo "Listing Users"
+
+	@go run . client list \
+		--addr localhost:9090 \
+		--tls-cert certs/client/client.crt \
+		--tls-key certs/client/client.key \
+		--tls-ca certs/ca/ca.crt
+
+	@echo "Creating A Test User"
+
+	@go run . client create \
+		--addr localhost:9090 \
+		--name Alice \
+		--email alice@example.com \
+		--tls-cert certs/client/client.crt \
+		--tls-key certs/client/client.key \
+		--tls-ca certs/ca/ca.crt
+
+	@echo "Getting User with ID 0"
+
+	@go run . client get \
+		--addr localhost:9090 \
+		--id 0 \
+		--tls-cert certs/client/client.crt \
+		--tls-key certs/client/client.key \
+		--tls-ca certs/ca/ca.crt
+
+run-server-mtls:  ## Runs the server-side application with mTLS enabled
+	go run . server run \
+		--addr 0.0.0.0:9090 \
+		--redis-address 127.0.0.1:6379 \
+		--cert certs/server/server.crt \
+		--key certs/server/server.key \
+		--ca certs/ca/ca.crt \
+		--mtls
+
+run-server-insecure:  ## Runs the server-side application with mTLS disabled
 	go run . server run \
 		--addr 0.0.0.0:9090 \
 		--redis-address 127.0.0.1:6379
+
 
 skaffold:  ## Runs the application with skaffold
 	skaffold dev
