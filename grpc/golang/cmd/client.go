@@ -3,35 +3,66 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"github.com/spf13/cobra"
+	"log"
 
 	"github.com/afoley587/coding-challenges-2025/grpc-golang-api/internal/client"
+	"github.com/spf13/cobra"
 )
 
 var (
+	// server address
 	clientServerAddr string
-	newName          string
-	newEmail         string
-	userId           int32
+
+	// create/get fields
+	newName  string
+	newEmail string
+	userId   int32
+
+	// TLS flags
+	insecure      bool
+	tlsCA         string
+	tlsClientCert string
+	tlsClientKey  string
 )
 
-// clientCmd groups client subcommands.
+// Build DialConfig from CLI flags
+func getDialConfig() client.DialConfig {
+	return client.DialConfig{
+		Address:    clientServerAddr,
+		Insecure:   insecure,
+		RootCA:     tlsCA,
+		ClientCert: tlsClientCert,
+		ClientKey:  tlsClientKey,
+	}
+}
+
+// Wrapper to build a high-level client
+func getClient() (*client.GRPCClient, error) {
+	cfg := getDialConfig()
+	return client.NewClient(cfg)
+}
+
+// Root client command
 var clientCmd = &cobra.Command{
 	Use:   "client",
 	Short: "Interact with the gRPC server",
-	Long:  "Commands for listing, creating and retrieving users via the gRPC client.",
+	Long:  "Commands for listing, creating, and retrieving users via the gRPC client.",
 }
 
-// listCmd lists all users in the server.
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all users",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return client.ListUsers(clientServerAddr)
+		c, err := getClient()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		log.Printf("Listing users from %s", clientServerAddr)
+		return c.ListUsers()
 	},
 }
 
-// createCmd creates a new user on the server.
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new user",
@@ -39,7 +70,13 @@ var createCmd = &cobra.Command{
 		if newName == "" || newEmail == "" {
 			return errors.New("both --name and --email must be specified")
 		}
-		user, err := client.CreateUser(clientServerAddr, newName, newEmail)
+
+		c, err := getClient()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		user, err := c.CreateUser(newName, newEmail)
 		if err != nil {
 			return err
 		}
@@ -48,12 +85,17 @@ var createCmd = &cobra.Command{
 	},
 }
 
-// getCmd retrieves a user by id.
 var getCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get a user by ID",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		user, err := client.GetUser(clientServerAddr, userId)
+		c, err := getClient()
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+
+		user, err := c.GetUser(userId)
 		if err != nil {
 			return err
 		}
@@ -67,15 +109,28 @@ var getCmd = &cobra.Command{
 }
 
 func init() {
-	// persistent flags apply to all subcommands
-	clientCmd.PersistentFlags().StringVarP(&clientServerAddr, "addr", "a", "127.0.0.1:9090", "Server address")
-	// flags specific to subcommands
+
+	clientCmd.PersistentFlags().StringVarP(&clientServerAddr,
+		"addr", "a", "127.0.0.1:9090", "Server address")
+
+	clientCmd.PersistentFlags().BoolVar(
+		&insecure, "insecure", false, "Use insecure gRPC (no TLS)")
+
+	clientCmd.PersistentFlags().StringVar(
+		&tlsCA, "tls-ca", "", "Path to root CA certificate")
+
+	clientCmd.PersistentFlags().StringVar(
+		&tlsClientCert, "tls-cert", "", "Path to client certificate for mTLS")
+
+	clientCmd.PersistentFlags().StringVar(
+		&tlsClientKey, "tls-key", "", "Path to client private key for mTLS")
+
 	createCmd.Flags().StringVarP(&newName, "name", "n", "", "Name of the user")
+
 	createCmd.Flags().StringVarP(&newEmail, "email", "e", "", "Email of the user")
+
 	getCmd.Flags().Int32VarP(&userId, "id", "i", 0, "ID of the user to retrieve")
 
-	clientCmd.AddCommand(listCmd)
-	clientCmd.AddCommand(createCmd)
-	clientCmd.AddCommand(getCmd)
+	clientCmd.AddCommand(listCmd, createCmd, getCmd)
 	rootCmd.AddCommand(clientCmd)
 }

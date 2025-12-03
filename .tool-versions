@@ -3,3 +3,5 @@ minikube 1.36.0
 pre-commit 4.5.0
 rust 1.86.0
 skaffold 2.16.1
+shellcheck 0.10.0
+shfmt 3.12.0

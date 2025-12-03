@@ -1,44 +1,84 @@
 package cmd
 
 import (
-	"github.com/spf13/cobra"
+	"fmt"
 	"log"
+
+	"github.com/spf13/cobra"
 
 	"github.com/afoley587/coding-challenges-2025/grpc-golang-api/internal/server"
 	"github.com/afoley587/coding-challenges-2025/grpc-golang-api/internal/store"
 )
 
 var (
-	listenAddr    string
+	// server network config
+	listenAddr string
+
+	// redis config
 	redisAddr     string
 	redisPassword string
+
+	// TLS/mTLS flags
+	enableMTLS     bool
+	serverCertFile string
+	serverKeyFile  string
+	serverCAFile   string
 )
 
-// serverCmd is the top‑level command for server operations.
 var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Run the gRPC server",
 	Long:  "Commands related to running the gRPC server.",
 }
 
-// runServerCmd starts the gRPC server with the specified flags.
 var runServerCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Start the gRPC server",
 	RunE: func(cmd *cobra.Command, args []string) error {
+
 		st, err := store.NewRedisStore(redisAddr, redisPassword, nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("redis connection failed: %w", err)
 		}
-		log.Printf("Starting server on %s (redis: %s)", listenAddr, redisAddr)
-		return server.Run(listenAddr, st)
+
+		switch {
+		case enableMTLS:
+			if serverCertFile == "" || serverKeyFile == "" || serverCAFile == "" {
+				return fmt.Errorf("mtls mode requires --cert, --key, and --ca")
+			}
+			log.Printf("Starting gRPC server with mTLS on %s", listenAddr)
+			return server.RunTLS(listenAddr, serverCertFile, serverKeyFile, serverCAFile, st)
+
+		default:
+			log.Printf("Starting insecure gRPC server on %s", listenAddr)
+			return server.Run(listenAddr, st)
+		}
 	},
 }
 
 func init() {
-	runServerCmd.Flags().StringVarP(&listenAddr, "addr", "a", "0.0.0.0:9090", "Address to listen on")
-	runServerCmd.Flags().StringVarP(&redisPassword, "redis-password", "p", "", "Redis password")
-	runServerCmd.Flags().StringVarP(&redisAddr, "redis-address", "r", "127.0.0.1:6379", "Redis address")
+
+	runServerCmd.Flags().StringVarP(&listenAddr,
+		"addr", "a", "0.0.0.0:9090", "Address to listen on")
+
+	runServerCmd.Flags().StringVarP(&redisAddr,
+		"redis-address", "r", "127.0.0.1:6379", "Redis address")
+
+	runServerCmd.Flags().StringVarP(&redisPassword,
+		"redis-password", "p", "", "Redis password")
+
+	runServerCmd.Flags().BoolVar(&enableMTLS,
+		"mtls", false, "Enable mutual TLS (requires --cert, --key, --ca)")
+
+	runServerCmd.Flags().StringVar(&serverCertFile,
+		"cert", "", "Path to server certificate (PEM)")
+
+	runServerCmd.Flags().StringVar(&serverKeyFile,
+		"key", "", "Path to server private key (PEM)")
+
+	runServerCmd.Flags().StringVar(&serverCAFile,
+		"ca", "", "Path to CA certificate for verifying client certificates (PEM)")
+
 	serverCmd.AddCommand(runServerCmd)
 	rootCmd.AddCommand(serverCmd)
 }

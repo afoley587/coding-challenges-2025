@@ -29,3 +29,11 @@ repos:
     rev: v1.37.1
     hooks:
       - id: yamllint
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-nodejs
+    rev: v1.1.2
+    hooks:
+      - id: markdown-toc
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
