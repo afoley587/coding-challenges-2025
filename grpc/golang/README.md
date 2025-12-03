@@ -1,10 +1,11 @@
-# Building a Production-Ready gRPC API in Go (with Redis, TLS, and mTLS)
+# Coding Challenges: Production-Ready gRPC API
+## Building a gRPC API in Go with mTLS
 
 Coding challenges are important to undertake.
 They help you expand or deepen your knowledge of a language, protocol,
 or technology.
 This project is a complete example of a **gRPC service written in Go**,
-backed by **Redis**, secured with **TLS/mTLS**,
+backed by **Redis**, secured with **mTLS**,
 and wrapped in a clean **Cobra-based CLI**.
 It is designed as both a learning tool and a realistic
 foundation for production-style gRPC services.
@@ -27,9 +28,14 @@ production-grade patterns, including:
 
 * gRPC server and client structure
 * Redis as a pluggable persistence backend
-* TLS and Mutual TLS (mTLS)
+* Mutual TLS (mTLS)
 * Graceful CLI tooling with Cobra
 * Skaffold workflows for local Kubernetes development
+
+As a disclaimer, I won't be going into depth about the code
+in this project.
+If you want to go into depth and inspect the code, please view it on
+[GitHub](https://github.com/afoley587/coding-challenges-2025/tree/main/grpc/golang).
 
 ## Table Of Contents
 
@@ -44,7 +50,7 @@ production-grade patterns, including:
 - [Building the Application](#building-the-application)
 - [Running the Service with mTLS](#running-the-service-with-mtls)
 - [Running With Skaffold](#running-with-skaffold)
-- [Running the Client (Local, Without TLS)](#running-the-client-local-without-tls)
+- [Running the Client (Local, Without mTLS)](#running-the-client-local-without-mtls)
 - [Testing](#testing)
 - [Conclusion](#conclusion)
 
@@ -61,7 +67,7 @@ It provides:
 * Bi-directional streaming
 * Automatic generation of client libraries
 * Lower latency than REST
-* Built-in support for TLS
+* Built-in support for mTLS
 
 This makes it an ideal foundation for microservices,
 internal APIs, and high-performance workloads.
@@ -96,7 +102,7 @@ The CLI and server both support choosing mTLS or plaintext.
 .
 ├── cmd/               # Cobra CLI commands (client + server)
 ├── internal/
-│   ├── server/        # gRPC server setup and TLS/mTLS configuration
+│   ├── server/        # gRPC server setup and mTLS configuration
 │   ├── store/         # Redis and in-memory user stores
 │   └── client/        # gRPC client implementation
 ├── proto/             # Protobuf definitions and generated code
@@ -236,11 +242,11 @@ make skaffold
 This runs:
 
 * Redis
-* The gRPC server (without TLS, for dev convenience)
+* The gRPC server (without mTLS, for dev convenience)
 
 ---
 
-## Running the Client (Local, Without TLS)
+## Running the Client (Local, Without mTLS)
 
 List users:
 
@@ -286,11 +292,12 @@ Tests cover:
 
 ## Conclusion
 
-This project demonstrates how to build a well-structured gRPC service in Go with real-world concerns:
+This project aims to demonstrate how to build a
+well-structured gRPC service in Go with real-world concerns:
 
 * Proper service architecture
 * Redis integration
-* TLS and mTLS
+* mTLS
 * Clean CLI tooling
 * Kubernetes-friendly configuration
 
@@ -299,3 +306,7 @@ It can serve as:
 * A learning project
 * A template for production microservices
 * A reference implementation for secure gRPC communication
+
+Thanks for following along!
+Please feel free to copy this code from
+[my GitHub repo](https://github.com/afoley587/coding-challenges-2025/tree/main/grpc/golang).
