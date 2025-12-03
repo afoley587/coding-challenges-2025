@@ -17,6 +17,10 @@ jobs:
     name: Build and Test
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: ./grpc/golang/
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
