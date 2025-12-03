@@ -31,6 +31,8 @@ production-grade patterns, including:
 * Graceful CLI tooling with Cobra
 * Skaffold workflows for local Kubernetes development
 
+## Table Of Contents
+
 <!-- toc -->
 
 - [Why gRPC?](#why-grpc)
