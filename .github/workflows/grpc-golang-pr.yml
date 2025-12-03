@@ -34,9 +34,6 @@ jobs:
       - name: Verify Go environment
         run: go version
 
-      - name: Generate gRPC stubs
-        run: make proto
-
       - name: Build application
         run: make build
 
