@@ -39,6 +39,9 @@ jobs:
       - name: Verify Go environment
         run: go version
 
+      - name: Install protoc-gen-go
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+
       - name: Generate gRPC stubs
         run: make proto
 
