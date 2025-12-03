@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - 'gprc/golang/**'
+      - 'grpc/golang/**'
 
 permissions:
   contents: read
