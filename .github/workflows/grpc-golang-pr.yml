@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - 'grpc/golang/**'
+      - '.github/workflows/grpc-golang-pr.yml'
 
 permissions:
   contents: read
