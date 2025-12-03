@@ -31,16 +31,8 @@ jobs:
           go-version: '1.24'
           cache: true
 
-      - name: Install protoc (for gRPC code generation)
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Verify Go environment
         run: go version
-
-      - name: Install protoc-gen-go
-        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
       - name: Generate gRPC stubs
         run: make proto
