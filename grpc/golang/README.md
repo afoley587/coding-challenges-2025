@@ -151,6 +151,7 @@ You should have the following installed:
 1. [Docker](https://docs.docker.com/engine/install/)
 1. [Go](https://go.dev/doc/install) (1.24+) *
 1. [Protoc](https://grpc.io/docs/protoc-installation/)
+1. [Protoc Golang Plugin](https://grpc.io/docs/languages/go/quickstart/)
 1. [Minikube](https://minikube.sigs.k8s.io/docs/start/) *
 1. [Kubectl](https://kubernetes.io/docs/tasks/tools/) *
 1. [Skaffold](https://skaffold.dev/docs/install/) *
@@ -158,7 +159,9 @@ You should have the following installed:
 Tools marked with an asterisk can be installed using `asdf`.
 
 To install via
-[`asdf`](https://asdf-vm.com/guide/getting-started.html):
+[`asdf`](https://asdf-vm.com/guide/getting-started.html), clone the
+GitHub repository and naviagate to the `grpc/golang directory`.
+Then run:
 
 ```bash
 for plugin in $(awk '{ print $1 }' ../../.tool-versions); do asdf plugin add "$plugin"; done
@@ -200,28 +203,29 @@ make docker
 
 ## Running the Service with mTLS
 
-Start Redis:
+We can start a local Redis instance listening on port 6379 with:
 
 ```bash
 make redis
 ```
 
-Generate certificates:
+We can generate CA, server, and client certificates with the below.
+Both server and client use the certificates under the certs/ directory.
 
 ```bash
 make certs
 ```
 
-Run the server using mTLS:
-
+Then we can run the server using the certificates generated above.
+This will start the server with mTLS enabled:
 ```bash
 make run-server-mtls
 ```
 
-Use the client with TLS:
+Use the client with mTLS:
 
 ```bash
-make run-client-tls
+make run-client-mtls
 ```
 
 Both server and client use the certificates under the `certs/` directory.
@@ -230,7 +234,10 @@ Both server and client use the certificates under the `certs/` directory.
 
 ## Running With Skaffold
 
-For local Kubernetes development:
+For local Kubernetes development, you might want to use `skaffold`.
+Using something like `skaffold` allows us to test changes, locally, in real-time.
+It standardizes build processes for local development and
+enables functions like file-watching and hot-reloading.
 
 ```bash
 # Start minikube cluster
