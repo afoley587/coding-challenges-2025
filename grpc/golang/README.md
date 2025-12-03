@@ -116,22 +116,43 @@ The CLI and server both support choosing mTLS or plaintext.
 * Skaffold workflow for Kubernetes development
 * Automated certificate generation via Makefile
 
+The `Makefile` contains multiple commands to help you get up and running:
+
+```bash
+$ make help
+  help                           Show this help.
+  build                          Build golang application
+  clean                          Removes build application binaries
+  certs                          Generates the mTLS certs
+  docker                         Build docker images
+  fmt                            Run go fmt to format code
+  minikube                       Start a local minikube cluster
+  proto                          Generate protocol buffer code
+  redis                          Start a redis instance
+  run-client-mtls                Runs a few test client commands with mTLS enabled
+  run-server-mtls                Runs the server-side application with mTLS enabled
+  run-server-insecure            Runs the server-side application with mTLS disabled
+  skaffold                       Runs the application with skaffold
+  test                           Runs all go tests
+```
+
 ---
 
 ## Pre-Requisites
 
 You should have the following installed:
 
-1. Docker
-1. Go (1.24+) *
-1. Protoc
-1. Minikube *
-1. Kubectl *
-1. Skaffold *
+1. [Docker](https://docs.docker.com/engine/install/)
+1. [Go](https://go.dev/doc/install) (1.24+) *
+1. [Protoc](https://grpc.io/docs/protoc-installation/)
+1. [Minikube](https://minikube.sigs.k8s.io/docs/start/) *
+1. [Kubectl](https://kubernetes.io/docs/tasks/tools/) *
+1. [Skaffold](https://skaffold.dev/docs/install/) *
 
 Tools marked with an asterisk can be installed using `asdf`.
 
-To install via `asdf`:
+To install via
+[`asdf`](https://asdf-vm.com/guide/getting-started.html):
 
 ```bash
 for plugin in $(awk '{ print $1 }' ../../.tool-versions); do asdf plugin add "$plugin"; done

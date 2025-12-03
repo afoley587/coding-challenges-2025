@@ -1,0 +1,44 @@
+---
+name: GRPC-Golang Coding Challenge
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'gprc/golang/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Install protoc (for gRPC code generation)
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Go environment
+        run: go version
+
+      - name: Generate gRPC stubs
+        run: make proto
+
+      - name: Build application
+        run: make build
+
+      - name: Run unit tests
+        run: make test
