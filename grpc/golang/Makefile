@@ -6,7 +6,7 @@ help:  ## Show this help.
 
 .DEFAULT_GOAL := help
 
-build: proto  ## Build golang application
+build:  ## Build golang application
 	@go build
 
 clean:  ## Removes build application binaries
