@@ -1,103 +1,232 @@
-# gRPC Golang API Example
+# Building a Production-Ready gRPC API in Go (with Redis, TLS, and mTLS)
 
-This directory contains a small example of a gRPC service written in Go.
-The service exposes three RPCs for managing users:
+Coding challenges are important to undertake.
+They help you expand or deepen your knowledge of a language, protocol,
+or technology.
+This project is a complete example of a **gRPC service written in Go**,
+backed by **Redis**, secured with **TLS/mTLS**,
+and wrapped in a clean **Cobra-based CLI**.
+It is designed as both a learning tool and a realistic
+foundation for production-style gRPC services.
+My goal for this project was to:
 
-* **CreateUser** – create a new user by name and email.
-* **GetUser** – retrieve a user by numeric ID.
-* **ListUsers** – stream all users to the client.
+1. Deepen my `golang` knowledge
 
-The server stores users via an abstract `UserStore` interface.
-A Redis‑backed store (`internal/store/redis.go`) is used by default, but
-an in‑memory implementation (`internal/store/memory.go`) is provided
-for tests and development.
-The gRPC service itself is implemented in `internal/server/grpc_server.go`
-and is registered and run by `internal/server/server.go`.
+1. Deepen my knowledge of structuring production projects
 
-The command‑line interface is built with
-[Cobra](https://github.com/spf13/cobra).
-It provides subcommands for running the server and interacting with it
-as a client.
+1. Deepen my `mTLS` knowledge and know-how
 
-## Pre-requisites
+The service exposes a simple **User API** with three RPCs:
 
-It is assumed the following tools are installed:
+* **CreateUser** – Create a new user with name and email
+* **GetUser** – Retrieve a user by ID
+* **ListUsers** – Stream all users from the store
+
+Although the data model is small, the project demonstrates
+production-grade patterns, including:
+
+* gRPC server and client structure
+* Redis as a pluggable persistence backend
+* TLS and Mutual TLS (mTLS)
+* Graceful CLI tooling with Cobra
+* Skaffold workflows for local Kubernetes development
+
+<!-- toc -->
+
+- [Why gRPC?](#why-grpc)
+- [What is mTLS?](#what-is-mtls)
+- [Project Structure](#project-structure)
+- [Features](#features)
+- [Pre-Requisites](#pre-requisites)
+- [Generating gRPC Code](#generating-grpc-code)
+- [Building the Application](#building-the-application)
+- [Running the Service with mTLS](#running-the-service-with-mtls)
+- [Running With Skaffold](#running-with-skaffold)
+- [Running the Client (Local, Without TLS)](#running-the-client-local-without-tls)
+- [Testing](#testing)
+- [Conclusion](#conclusion)
+
+<!-- tocstop -->
+
+---
+
+## Why gRPC?
+
+gRPC is a high-performance RPC framework built on HTTP/2.
+It provides:
+
+* Strongly typed client/server contracts using Protocol Buffers
+* Bi-directional streaming
+* Automatic generation of client libraries
+* Lower latency than REST
+* Built-in support for TLS
+
+This makes it an ideal foundation for microservices,
+internal APIs, and high-performance workloads.
+
+---
+
+## What is mTLS?
+
+Traditional TLS provides **server authentication**:
+the client verifies the server’s certificate.
+
+**Mutual TLS (mTLS)** goes further:
+*both the server and client authenticate each other* using certificates.
+
+This is often used in:
+
+* Zero-trust architectures
+* Service-to-service communication
+* Highly sensitive internal systems
+
+In this project:
+
+* mTLS mode additionally requires the server to validate client certificates
+
+The CLI and server both support choosing mTLS or plaintext.
+
+---
+
+## Project Structure
+
+```
+.
+├── cmd/               # Cobra CLI commands (client + server)
+├── internal/
+│   ├── server/        # gRPC server setup and TLS/mTLS configuration
+│   ├── store/         # Redis and in-memory user stores
+│   └── client/        # gRPC client implementation
+├── proto/             # Protobuf definitions and generated code
+├── scripts/           # Certificate generation utilities
+└── Makefile
+```
+
+---
+
+## Features
+
+* gRPC server with user management RPCs
+* Pluggable datastore: Redis or in-memory
+* mTLS support (server and client)
+* Redis password support
+* Clean, extensible CLI
+* Skaffold workflow for Kubernetes development
+* Automated certificate generation via Makefile
+
+---
+
+## Pre-Requisites
+
+You should have the following installed:
 
 1. Docker
-
-1. Golang **
-
-1. Minikube **
-
-1. Kubectl **
-
+1. Go (1.24+) *
 1. Protoc
+1. Minikube *
+1. Kubectl *
+1. Skaffold *
 
-1. Skaffold **
+Tools marked with an asterisk can be installed using `asdf`.
 
-> [!TIP]
-> ** - This repository's binaries are versioned with
-> [`asdf`](https://asdf-vm.com/).
-> If using `asdf`, you can automate the installation process with:
->
-> ```bash
-> for plugin in $(awk '{ print $1 }' ../../.tool-versions); do asdf plugin add "$plugin"; done
-> asdf install
-> asdf reshim
-> ```
+To install via `asdf`:
 
-## Generating gRPC code
+```bash
+for plugin in $(awk '{ print $1 }' ../../.tool-versions); do asdf plugin add "$plugin"; done
+asdf install
+asdf reshim
+```
 
-To regenerate the Go stubs from the `proto/users.proto` definition you
-need `protoc` with the Go and gRPC plugins.
-To install `protoc`, please follow the
-[installation instructions](https://grpc.io/docs/languages/go/quickstart/)
-for your operating system.
-Once `protoc` is installed, build the protocol buffers:
+---
+
+## Generating gRPC Code
+
+Once `protoc` is installed, regenerate stubs with:
 
 ```bash
 make proto
 ```
 
-This will update the generated code under the `proto` package.
+This updates the generated Go code in the `proto` directory.
 
-## Building
+---
 
-Ensure you have a recent version of Go installed (1.24 or later) and
-run:
+## Building the Application
+
+The CLI binary includes both **client** and **server** subcommands.
+
+Build locally:
 
 ```bash
 make build
 ```
 
-Alternatively, you can build the docker image with
+Or build a Docker image:
 
 ```bash
 make docker
 ```
 
-## Running With Skaffold
+---
 
-The server and redis stack can be run in dev-mode with
-[skaffold](https://skaffold.dev/):
+## Running the Service with mTLS
+
+Start Redis:
 
 ```bash
+make redis
+```
+
+Generate certificates:
+
+```bash
+make certs
+```
+
+Run the server using mTLS:
+
+```bash
+make run-server-mtls
+```
+
+Use the client with TLS:
+
+```bash
+make run-client-tls
+```
+
+Both server and client use the certificates under the `certs/` directory.
+
+---
+
+## Running With Skaffold
+
+For local Kubernetes development:
+
+```bash
+# Start minikube cluster
+make minikube
+# Start dev stack
 make skaffold
 ```
 
-This will start the gRPC server listening on port 9090
-as well as a redis instance which is not exposed.
+This runs:
 
-## Running the client
+* Redis
+* The gRPC server (without TLS, for dev convenience)
 
-List all users:
+---
+
+## Running the Client (Local, Without TLS)
+
+List users:
 
 ```bash
 go run . client list \
     --addr 127.0.0.1:9090
 ```
 
-Create a new user:
+Create a user:
 
 ```bash
 go run . client create \
@@ -106,7 +235,7 @@ go run . client create \
     --email alice@example.com
 ```
 
-Get a user by ID:
+Fetch a user:
 
 ```bash
 go run . client get \
@@ -114,13 +243,36 @@ go run . client get \
     --id 0
 ```
 
+---
+
 ## Testing
 
-Unit tests for the in‑memory store and gRPC service can be run with:
+Unit tests use the in-memory store (no Redis required):
 
 ```bash
 make test
 ```
 
-The tests use the in‑memory store to avoid the need
-for Redis during testing.
+Tests cover:
+
+* Store operations
+* gRPC server behavior
+* Error handling and validation
+
+---
+
+## Conclusion
+
+This project demonstrates how to build a well-structured gRPC service in Go with real-world concerns:
+
+* Proper service architecture
+* Redis integration
+* TLS and mTLS
+* Clean CLI tooling
+* Kubernetes-friendly configuration
+
+It can serve as:
+
+* A learning project
+* A template for production microservices
+* A reference implementation for secure gRPC communication
