@@ -1,0 +1,20 @@
+---
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: ml-queue
+spec:
+  weight: 1
+  reclaimable: true
+  capability:
+    cpu: "4"
+    memory: "8Gi"
+
+---
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: default
+spec:
+  weight: 1
+  reclaimable: true
