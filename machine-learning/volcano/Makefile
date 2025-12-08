@@ -4,7 +4,7 @@ MAKEFLAGS += --always-make
 IMAGE_NAME := ml-model
 IMAGE_TAG := latest
 NAMESPACE := ml-models
-VOLCANO_VERSION := v1.8.2
+VOLCANO_VERSION := v1.12.0
 HELM_RELEASE_NAME := volcano-system
 
 # Default target
@@ -78,8 +78,6 @@ deploy-queues: create-namespace ## Deploy Volcano queues
 deploy-app: create-namespace deploy-queues ## Deploy the ML model application
 	@echo "Deploying ML model application..."
 	kubectl apply -f k8s/ml-model-deployment.yaml
-	@echo "Waiting for deployment to be ready..."
-	kubectl wait --for=condition=ready pod -l app=ml-model -n $(NAMESPACE) --timeout=300s
 	@echo "Application deployed successfully"
 
 test-deployment: ## Test the deployed application
