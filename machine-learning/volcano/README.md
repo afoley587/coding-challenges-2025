@@ -351,6 +351,9 @@ We will omit any in-depth discussion about this step.
 
 ### 3. Deploy the Application
 
+Next, we can deploy our python application and the
+Volcano resources:
+
 ```bash
 make deploy-app
 
@@ -365,17 +368,6 @@ make deploy-app
 This step creates the ML serving infrastructure with multiple Kubernetes
 resources:
 
-##### Namespace Setup:
-
-```yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ml-models
-```
-Creates an isolated namespace for ML model resources, enabling proper
-resource quotas, network policies, and access controls.
-
 ##### Volcano Queue Configuration:
 
 ```yaml
@@ -383,6 +375,7 @@ apiVersion: scheduling.volcano.sh/v1beta1
 kind: Queue
 metadata:
   name: ml-queue
+  # Queues are cluster-wide, so no namespace needed
 spec:
   weight: 1
   reclaimable: true
@@ -395,6 +388,7 @@ apiVersion: scheduling.volcano.sh/v1beta1
 kind: Queue
 metadata:
   name: default
+  # Queues are cluster-wide, so no namespace needed
 spec:
   weight: 1
   reclaimable: true
@@ -570,15 +564,14 @@ We should see two pods running which should match the `replicas`
 of our Volcano job.
 
 ```bash
-$ kubectl get pods -n ml-models
-NAME                       READY   STATUS    RESTARTS   AGE
-ml-model-job-ml-server-0   1/1     Running   0          4m26s
-ml-model-job-ml-server-1   1/1     Running   0          4m26s
+$ kubectl get pods -n ml-models -o wide
+NAME                       READY   STATUS    RESTARTS   AGE   IP            NODE       NOMINATED NODE   READINESS GATES
+ml-model-job-ml-server-0   1/1     Running   0          55s   10.244.0.11   minikube   <none>           <none>
+ml-model-job-ml-server-1   1/1     Running   0          55s   10.244.0.10   minikube   <none>           <none>
 
-$ kubectl get services -n ml-models
-NAME               TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
-ml-model-job       ClusterIP   None            <none>        <none>    4m43s
-ml-model-service   ClusterIP   10.104.91.114   <none>        80/TCP    4m43s
+$ kubectl get vcjob -n ml-models -o wide
+NAME           STATUS    MINAVAILABLE   RUNNINGS   AGE   QUEUE
+ml-model-job   Running   2              2          57s   ml-queue
 ```
 
 #### API Endpoint Validation:
@@ -603,13 +596,14 @@ Then, we can test them via `curl`:
 # Health endpoint - confirms service is responding
 $ curl -f http://localhost:8080/health
 {"status":"healthy","model_loaded":true,"version":"1.0.0"}
+
 # Readiness endpoint - confirms model is loaded and ready
-curl -f http://localhost:8080/ready
-$ {"status":"ready"}
+$ curl -f http://localhost:8080/ready
+{"status":"ready"}
 
 # Model info endpoint - validates model metadata
-curl http://localhost:8080/model-info
-$ {"model_type":"RandomForestClassifier","n_features":20,"n_classes":2,"classes":[0,1]}
+$ curl http://localhost:8080/model-info
+{"model_type":"RandomForestClassifier","n_features":20,"n_classes":2,"classes":[0,1]}
 ```
 
 Functional Testing:
@@ -668,11 +662,21 @@ $ wait
 {"predictions":[0],"probabilities":[[0.6,0.4]]}[11]  + done       curl -s -X POST http://localhost:8080/predict -H  -d
 ```
 
+Note that all of the predictions are the same since we're just using a
+dummy model with scikit-learn.
+
 #### Volcano-Specific Validation:
 
 We can then view the volcano-specific kubernetes objects:
 
 ```bash
+# Verify Volcano Queues
+$ kubectl get queue -o wide
+NAME       PARENT
+default    root
+ml-queue   root
+root
+
 # Verify Volcano job status
 $ kubectl get vcjob ml-model-job -n ml-models
 NAME           STATUS    MINAVAILABLE   RUNNINGS   AGE

@@ -46,7 +46,7 @@ spec:
     svc: []
     ssh: []
   maxRetry: 3
-  queue: default
+  queue: ml-queue
   tasks:
     - replicas: 2
       name: ml-server
