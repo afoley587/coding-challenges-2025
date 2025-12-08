@@ -13,6 +13,8 @@ repos:
     rev: v2.4.1
     hooks:
       - id: codespell
+        args:
+          - -L THIRDPARTY
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -37,3 +39,16 @@ repos:
     rev: v1.7.7
     hooks:
       - id: actionlint
+  - repo: https://github.com/psf/black
+    rev: 25.11.0
+    hooks:
+      - id: black
+        language_version: python3.11
+  - repo: https://github.com/pycqa/isort
+    rev: 7.0.0
+    hooks:
+      - id: isort
+        name: isort (python)
+        args:
+          - --profile
+          - black
