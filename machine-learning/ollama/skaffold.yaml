@@ -1,0 +1,43 @@
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: ollama-fastapi-namespace
+manifests:
+  rawYaml:
+    - k8s/namespace.yaml
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+---
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: ollama-fastapi-deployments
+build:
+  artifacts:
+    - image: afoley587/coding-challenges/ollama-fastapi
+      context: python/
+      docker:
+        dockerfile: Dockerfile
+      sync:
+        manual:  # manually sync files to the running pod, don't rebuild image.
+          - src: "*.py"
+            dest: /app
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+manifests:
+  rawYaml:
+    - k8s/ollama-statefulset.yaml
+    - k8s/api-deployment.yaml
+# Automatically forward the service to localhost
+portForward:
+  - resourceType: service
+    resourceName: llm-api-service
+    namespace: llm-serving
+    port: 8080
+    localPort: 8080
+requires:
+  - configs:
+      - ollama-fastapi-namespace
