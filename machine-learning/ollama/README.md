@@ -561,7 +561,7 @@ Skaffold configuration is pretty straightforward.
 
 First, we deploy the kubernetes namespace:
 
-```
+```yaml
 ---
 apiVersion: skaffold/v4beta13
 kind: Config
