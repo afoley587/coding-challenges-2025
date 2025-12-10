@@ -9,7 +9,7 @@ CPU-capable.
 
 The result is a development environment that runs on my laptop and does so
 efficiently.
-This might not be the best way to serve `ollama` or a model in prouction,
+This might not be the best way to serve `ollama` or a model in production,
 but at least it lets developers test things locally without connecting
 to external services.
 It also does so in a standardized way with containers and your team's
@@ -118,6 +118,7 @@ them every time a pod restarts.
 `StatefulSets` provide stable storage that persists across restarts.
 
 ```yaml
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -132,25 +133,27 @@ spec:
   template:
     spec:
       initContainers:
-      - name: pull-model
-        image: ollama/ollama:latest
-        command:
-          - /bin/sh
-          - -c
-          - |
-            if [ -d "/root/.ollama/models" ] && [ "$(ls -A /root/.ollama/models 2>/dev/null)" ]; then
-              echo "Model already downloaded, skipping pull"
-              exit 0
-            fi
+        - name: pull-model
+          image: ollama/ollama:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Check if model already exists
+              if [ -d "/root/.ollama/models" ] && [ "$(ls -A /root/.ollama/models 2>/dev/null)" ]; then
+                echo "Model already downloaded, skipping pull"
+                exit 0
+              fi
 
-            echo "Downloading model..."
-            ollama serve &
-            sleep 5
-            ollama pull qwen2.5:0.5b
-            pkill ollama
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
+              echo "Downloading model..."
+              ollama serve &
+              sleep 5
+              ollama pull qwen2.5:0.5b
+              pkill ollama
+              echo "Model download complete"
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
 ```
 
 The `initContainer` handles model downloading.
@@ -163,20 +166,24 @@ The main container configuration is straightforward:
 
 ```yaml
       containers:
-      - name: ollama
-        image: ollama/ollama:latest
-        ports:
-        - containerPort: 11434
-        env:
-        - name: OLLAMA_HOST
-          value: "0.0.0.0:11434"
-        resources:
-          requests:
-            memory: "2Gi"
-            cpu: "1000m"
-          limits:
-            memory: "6Gi"
-            cpu: "4000m"
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+              name: http
+              protocol: TCP
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_ORIGINS
+              value: "*"
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "6Gi"
+              cpu: "4000m"
 ```
 
 Resource limits are important here!
@@ -192,15 +199,15 @@ Storage is handled through a `volumeClaimTemplate`:
 
 ```yaml
   volumeClaimTemplates:
-  - metadata:
-      name: ollama-data
-    spec:
-      accessModes:
-        - ReadWriteOnce
-      storageClassName: standard
-      resources:
-        requests:
-          storage: 10Gi
+    - metadata:
+        name: ollama-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 10Gi
 ```
 
 Each pod in the StatefulSet gets its own `PersistentVolumeClaim`.
@@ -212,30 +219,48 @@ class uses the local filesystem.
 The FastAPI service runs as a standard `Deployment` with multiple replicas:
 
 ```yaml
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: llm-api
   namespace: llm-serving
+  labels:
+    app: llm-api
+    component: api-gateway
 spec:
   replicas: 2
+  selector:
+    matchLabels:
+      app: llm-api
   template:
+    metadata:
+      labels:
+        app: llm-api
+        component: api-gateway
     spec:
       containers:
-      - name: api
-        image: llm-api:latest
-        env:
-        - name: OLLAMA_HOST
-          value: "http://ollama-service:11434"
-        - name: MODEL_NAME
-          value: "qwen2.5:0.5b"
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "200m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+        - name: api
+          image: afoley587/coding-challenges/ollama-fastapi:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: OLLAMA_ENDPOINT
+              value: "http://ollama-service:11434"
+            - name: MODEL_NAME
+              value: "qwen2.5:0.5b"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
 ```
 
 Two replicas provide high availability.
@@ -246,18 +271,22 @@ requirements are minimal.
 We have a few probes as well:
 
 ```yaml
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 15
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
 ```
 
 Liveness checks if the pod is alive.
@@ -281,23 +310,37 @@ FastAPI's lifespan context manager handles startup and shutdown:
 ```python
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    """
+    FastAPI lifespan context manager for startup and shutdown events
+    """
     logger.info("Starting up application...")
 
     state.config = Config()
+    logger.info(
+        f"Configuration loaded: OLLAMA_HOST={state.config.OLLAMA_HOST}, MODEL={state.config.MODEL_NAME}"
+    )
+
     state.metrics = Metrics()
+    logger.info("Prometheus metrics initialized")
+
     state.ollama_client = ollama.Client(host=state.config.OLLAMA_HOST)
+    logger.info(f"Ollama client initialized for {state.config.OLLAMA_HOST}")
 
     try:
         models = state.ollama_client.list()
-        logger.info(f"Connected to Ollama. Available models: {[m['name'] for m in models.get('models', [])]}")
+        logger.info(
+            f"Connected to Ollama. Available models: {[m['model'] for m in models.get('models', [])]}"
+        )
     except Exception as e:
         logger.warning(f"Could not connect to Ollama on startup: {e}")
 
+    logger.info("Application startup complete")
+
     yield
 
-    # Shutdown
     logger.info("Shutting down application...")
+    logger.info("Application shutdown complete")
+
 ```
 
 This ensures everything initializes in the correct order.
@@ -312,19 +355,27 @@ Instead of global variables, we use FastAPI's dependency injection:
 
 ```python
 class AppState:
+    """Application state container"""
+
     config: Config
     metrics: Metrics
     ollama_client: ollama.Client
 
+
 state = AppState()
 
 def get_config() -> Config:
+    """Dependency for accessing configuration"""
     return state.config
 
+
 def get_metrics() -> Metrics:
+    """Dependency for accessing metrics"""
     return state.metrics
 
+
 def get_ollama_client() -> ollama.Client:
+    """Dependency for accessing Ollama client"""
     return state.ollama_client
 ```
 
@@ -336,7 +387,7 @@ async def generate(
     request: GenerationRequest,
     client: ollama.Client = Depends(get_ollama_client),
     config: Config = Depends(get_config),
-    metrics: Metrics = Depends(get_metrics)
+    metrics: Metrics = Depends(get_metrics),
 ):
     # client, config, and metrics are injected
 ```
@@ -350,13 +401,17 @@ Metrics are centralized in a class:
 
 ```python
 class Metrics:
+    """Centralized Prometheus metrics"""
+
     def __init__(self):
         self.registry = CollectorRegistry()
 
+        # Register default collectors
         gc_collector.GCCollector(registry=self.registry)
         platform_collector.PlatformCollector(registry=self.registry)
         process_collector.ProcessCollector(registry=self.registry)
 
+        # Custom metrics
         self.request_count = Counter(
             "afoley_vllm_requests_total",
             "Total LLM requests",
@@ -406,9 +461,9 @@ The metrics endpoint exposes everything to Prometheus:
 ```python
 @app.get("/metrics")
 async def get_metrics_endpoint(metrics: Metrics = Depends(get_metrics)):
+    """Prometheus metrics endpoint"""
     return Response(
-        content=generate_latest(metrics.registry),
-        media_type=CONTENT_TYPE_LATEST
+        content=generate_latest(metrics.registry), media_type=CONTENT_TYPE_LATEST
     )
 ```
 
