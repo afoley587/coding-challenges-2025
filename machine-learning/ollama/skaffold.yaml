@@ -20,10 +20,6 @@ build:
       context: python/
       docker:
         dockerfile: Dockerfile
-      sync:
-        manual:  # manually sync files to the running pod, don't rebuild image.
-          - src: "*.py"
-            dest: /app
 deploy:
   kubeContext: minikube
   kubectl: {}
