@@ -1,0 +1,72 @@
+---
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: rayservice-demo
+  namespace: kuberay-mlflow
+spec:
+  serviceUnhealthySecondThreshold: 300
+  deploymentUnhealthySecondThreshold: 300
+  serveConfigV2: |
+    applications:
+      - name: fastapi
+        import_path: kuberay_mlflow.serve.deployment
+        route_prefix: /fastapi_app
+  rayClusterConfig:
+    rayVersion: '2.52.1'  # Should match Ray version in the containers
+    gcsFaultToleranceOptions:
+      redisAddress: "redis:6379"
+      # redisPassword:
+      #   valueFrom:
+      #     secretKeyRef:
+      #       name: redis-password-secret
+      #       key: password
+    headGroupSpec:
+      serviceType: ClusterIP
+      rayStartParams:
+        dashboard-host: '0.0.0.0'
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: afoley587/coding-challenges/kuberay-mlflow
+              imagePullPolicy: Never
+              resources:
+                limits:
+                  cpu: 2
+                  memory: 4Gi
+                requests:
+                  cpu: 2
+                  memory: 4Gi
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+                - containerPort: 8000
+                  name: serve
+    workerGroupSpecs:
+      - replicas: 1
+        minReplicas: 1
+        maxReplicas: 1
+        groupName: small-group
+        rayStartParams: {}
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: afoley587/coding-challenges/kuberay-mlflow
+                imagePullPolicy: Never
+                lifecycle:
+                  preStop:
+                    exec:
+                      command: ["/bin/sh", "-c", "ray stop"]
+                resources:
+                  limits:
+                    cpu: "1"
+                    memory: "3Gi"
+                  requests:
+                    cpu: "1"
+                    memory: "3Gi"
