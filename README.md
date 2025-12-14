@@ -20,6 +20,18 @@ found across the internet and decided to achieve in
 1. December, 2025 - `grpc` challenges.
    I would like to implement the same logic in both `golang` and `rust`.
 
+1. December, 2025 - `volcano-sceduler` challenge.
+   See the
+   [volcano project](./machine-learning/volcano/).
+
+1. December, 2025 - `ollama-kubernetes` challenges.
+   See the
+   [ollama project](./machine-learning/ollama/).
+
+1. December, 2025 - `kuberay-mlflow` challenges.
+   See the
+   [KubeRay - MLFlow project](./machine-learning/kuberay-mlflow/).
+
 ## Contributing
 
 ### ASDF

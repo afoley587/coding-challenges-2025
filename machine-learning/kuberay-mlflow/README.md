@@ -580,3 +580,8 @@ $ curl -X POST http://localhost:8000/fastapi_app/predict \
 
 Ray Serve routes the request to a model replica, executes the prediction,
 and returns the result synchronously.
+
+## Conclusion
+At this point, we trained, deployed, and ran a machine learning model,
+albeit a small one.
+Thanks for following along! All code can be found on GitHub!
