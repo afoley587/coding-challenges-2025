@@ -191,7 +191,7 @@ class ModelServer:
             timestamp=datetime.now().isoformat(),
         )
 
-    @app.get("/model/load")
+    @app.post("/model/load")
     def load(self):
         """Load model and track with MLFlow"""
         self.load_model()
