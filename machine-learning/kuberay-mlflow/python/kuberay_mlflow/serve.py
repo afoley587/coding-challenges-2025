@@ -42,6 +42,20 @@ class HealthResponse(BaseModel):
     timestamp: str
 
 
+class RootResponse(BaseModel):
+    message: str
+    model_name: str
+    model_version: str
+    timestamp: str
+
+
+class ModelInfoResponse(BaseModel):
+    model_loaded: bool
+    model_info: dict[str, Any]
+    mlflow_uri: str
+    timestamp: str
+
+
 app = FastAPI(
     title="ML Model Server",
     description="Machine Learning Model Serving API using Ray Serve and MLflow",
@@ -65,16 +79,17 @@ class ModelServer:
         self.model = None
         self.model_info = {}
 
-        # Set MLflow tracking URI
         self.mlflow_tracking_uri = mlflow_uri
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
 
-    def load_model(self):
+    def load_model(self) -> None:
         """Load model from MLflow model registry"""
-        try:
-            logger.info(f"Loading model {self.model_name} version {self.model_version}")
+        logger.info("Attempting to load model")
 
-            # Load model from MLflow
+        if not self.model_name:
+            raise ValueError("Model name must be provided")
+
+        try:
             if self.model_version == "latest":
                 model_uri = f"models:/{self.model_name}/Latest"
             else:
@@ -82,79 +97,77 @@ class ModelServer:
 
             self.model = mlflow.sklearn.load_model(model_uri)
 
-            # Get model metadata
             client = mlflow.tracking.MlflowClient()
-            try:
-                if self.model_version == "latest":
-                    model_version = client.get_latest_versions(
-                        self.model_name, stages=["None", "Staging", "Production"]
-                    )[0]
-                else:
-                    model_version = client.get_model_version(
-                        self.model_name, self.model_version
-                    )
 
-                self.model_info = {
-                    "name": self.model_name,
-                    "version": model_version.version,
-                    "stage": model_version.current_stage,
-                    "description": model_version.description
-                    or "No description available",
-                    "creation_timestamp": model_version.creation_timestamp,
-                }
-            except Exception as e:
-                logger.warning(f"Could not load model metadata: {e}")
-                self.model_info = {
-                    "name": self.model_name,
-                    "version": self.model_version,
-                    "stage": "Unknown",
-                    "description": "Loaded directly from URI",
-                    "creation_timestamp": None,
-                }
+            if self.model_version == "latest":
+                versions = client.get_latest_versions(
+                    self.model_name, stages=["None", "Staging", "Production"]
+                )
+                if not versions:
+                    raise LookupError("No registered versions found for model")
+                model_version = versions[0]
+            else:
+                model_version = client.get_model_version(
+                    self.model_name, self.model_version
+                )
 
-            logger.info(f"Model loaded successfully: {self.model_info}")
+            self.model_info = {
+                "name": self.model_name,
+                "version": model_version.version,
+                "stage": model_version.current_stage,
+                "description": model_version.description or "No description available",
+                "creation_timestamp": model_version.creation_timestamp,
+            }
+
+            logger.info("Model loaded successfully")
+
+        except mlflow.exceptions.MlflowException as e:
+            logger.error(f"MLflow error while loading model: {e}")
+            raise
 
         except Exception as e:
-            logger.error(f"Failed to load model: {e}")
-            # Create a dummy model for demo purposes
-            raise (e)
+            logger.exception("Unexpected error while loading model")
+            raise
 
-    @app.get("/")
+    @app.get("/", response_model=RootResponse)
     def root(self):
         """Root endpoint"""
-        return {
-            "message": "ML Model Server is running",
-            "model": self.model_info.get("name", "Unknown"),
-            "version": self.model_info.get("version", "Unknown"),
-            "timestamp": datetime.now().isoformat(),
-        }
+        return RootResponse(
+            message="ML Model Server is running",
+            model_name=self.model_info.get("name", "unknown"),
+            model_version=self.model_info.get("version", "unknown"),
+            timestamp=datetime.now().isoformat(),
+        )
 
     @app.post("/predict", response_model=PredictionResponse)
     def predict(self, request: PredictionRequest):
         """Make predictions on input data"""
+        if self.model is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Model not loaded. Call /model/load first.",
+            )
+
         try:
-            if self.model is None:
-                raise HTTPException(status_code=503, detail="Model not loaded")
+            X = np.asarray(request.features)
 
-            # Convert input to numpy array
-            X = np.array(request.features)
-
-            # Validate input shape
-            if len(X.shape) != 2:
+            if X.ndim != 2:
                 raise HTTPException(
-                    status_code=400, detail=f"Expected 2D array, got shape {X.shape}"
+                    status_code=400,
+                    detail=f"Expected 2D array [n_samples, n_features], got shape {X.shape}",
                 )
 
-            # Make predictions
+            if X.size == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Input features array is empty",
+                )
+
             predictions = self.model.predict(X).tolist()
 
-            # Get prediction probabilities if available
             probabilities = None
             if hasattr(self.model, "predict_proba"):
-                try:
-                    probabilities = self.model.predict_proba(X).tolist()
-                except Exception as e:
-                    logger.warning(f"Could not get probabilities: {e}")
+                probabilities = self.model.predict_proba(X).tolist()
 
             return PredictionResponse(
                 predictions=predictions,
@@ -165,50 +178,88 @@ class ModelServer:
 
         except HTTPException:
             raise
+
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid input values: {str(e)}",
+            )
+
         except Exception as e:
-            logger.error(f"Prediction failed: {e}")
-            raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+            logger.exception("Unhandled prediction error")
+            raise HTTPException(
+                status_code=500,
+                detail="Internal prediction error",
+            )
 
     @app.get("/health", response_model=HealthResponse)
     def health(self):
         """Health check endpoint"""
+        model_loaded = self.model is not None
+        ray_info: dict[str, Any]
+
         try:
-            # Get Ray cluster information
             ray_info = {
                 "cluster_resources": ray.cluster_resources(),
                 "available_resources": ray.available_resources(),
                 "nodes": len(ray.nodes()),
             }
         except Exception as e:
-            logger.warning(f"Could not get Ray cluster info: {e}")
-            ray_info = {"error": str(e)}
+            logger.warning(f"Ray health check failed: {e}")
+            ray_info = {
+                "status": "unavailable",
+                "error": str(e),
+            }
+
+        status = "healthy" if model_loaded else "degraded"
 
         return HealthResponse(
-            status="healthy" if self.model is not None else "unhealthy",
-            model_loaded=self.model is not None,
+            status=status,
+            model_loaded=model_loaded,
             model_info=self.model_info,
             ray_cluster_info=ray_info,
             timestamp=datetime.now().isoformat(),
         )
 
-    @app.post("/model/load")
+    @app.post("/model/load", response_model=ModelInfoResponse)
     def load(self):
-        """Load model and track with MLFlow"""
-        self.load_model()
-        return {
-            "model_info": self.model_info,
-            "mlflow_uri": self.mlflow_tracking_uri,
-            "timestamp": datetime.now().isoformat(),
-        }
+        """Load model from MLflow into memory"""
+        try:
+            self.load_model()
+            return ModelInfoResponse(
+                model_loaded=True,
+                model_info=self.model_info,
+                mlflow_uri=self.mlflow_tracking_uri,
+                timestamp=datetime.now().isoformat(),
+            )
+
+        except LookupError as e:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model not found: {str(e)}",
+            )
+
+        except mlflow.exceptions.MlflowException as e:
+            raise HTTPException(
+                status_code=502,
+                detail=f"MLflow error while loading model: {str(e)}",
+            )
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to load model: {str(e)}",
+            )
 
     @app.get("/model/info")
     def model_info_endpoint(self):
         """Get model information"""
-        return {
-            "model_info": self.model_info,
-            "mlflow_uri": self.mlflow_tracking_uri,
-            "timestamp": datetime.now().isoformat(),
-        }
+        return ModelInfoResponse(
+            model_loaded=self.model is not None,
+            model_info=self.model_info,
+            mlflow_uri=self.mlflow_tracking_uri,
+            timestamp=datetime.now().isoformat(),
+        )
 
 
 deployment = ModelServer.bind(
