@@ -10,7 +10,7 @@ deploy:
   kubeContext: minikube
   kubectl: {}
 ---
-apiVersion: skaffold/v4beta11
+apiVersion: skaffold/v4beta13
 kind: Config
 metadata:
   name: ollama-fastapi-deployments

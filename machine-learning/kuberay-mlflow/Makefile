@@ -11,9 +11,14 @@ fmt:  ## Format the code using black
 		poetry run black ./ && \
 		poetry run isort --profile black ./
 
+helm-repos:  ## Adds and updates helm repositories
+	@helm repo add kuberay https://ray-project.github.io/kuberay-helm/ \
+		&& helm repo add community-charts https://community-charts.github.io/helm-charts \
+		&& helm repo update
+
 minikube-start: ## Start minikube with appropriate resources
 	@echo "Starting minikube..."
-	minikube start --cpus=8 --memory=8192 --disk-size=30g
+	minikube start --cpus=8 --memory=12288 --disk-size=40g
 	minikube addons enable ingress
 	@echo "Minikube started successfully"
 
@@ -21,7 +26,7 @@ minikube-stop: ## Stop minikube
 	minikube stop
 
 docker:  ## Build docker images
-	@docker build . -t afoley587/coding-challenges/ollama-fastapi:latest
+	@docker build ./python -t afoley587/coding-challenges/kubeflow-ray-demo:latest
 
 skaffold:  ## Runs the application with skaffold
-	@skaffold dev
+	@skaffold dev --keep-running-on-failure

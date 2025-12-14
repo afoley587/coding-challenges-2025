@@ -1,0 +1,119 @@
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: kuberay-mlflow-namespace
+manifests:
+  rawYaml:
+    - k8s/namespace.yaml
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: kuberay-mlflow-ray-operator
+deploy:
+  kubeContext: minikube
+  helm:
+    releases:
+      - name: kuberay-operator
+        remoteChart: kuberay/kuberay-operator
+        version: "1.4.2"
+        namespace: kuberay-system
+        createNamespace: true
+        wait: true
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: kuberay-mlflow-redis
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+manifests:
+  rawYaml:
+    - k8s/redis/redis-deployment.yaml
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: kuberay-mlflow-mlfow-storage
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+manifests:
+  rawYaml:
+    - k8s/mlflow/mlflow-pvc.yaml
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: kuberay-mlflow-mlfow
+deploy:
+  kubeContext: minikube
+  helm:
+    releases:
+      - name: mlflow
+        remoteChart: community-charts/mlflow
+        version: "1.8.1"
+        namespace: kuberay-mlflow
+        wait: true
+        valuesFiles:
+          - k8s/mlflow/mlflow-values.yaml
+portForward:
+  # Port-forward the dashboard
+  - resourceType: service
+    resourceName: mlflow
+    namespace: kuberay-mlflow
+    port: 80
+    localPort: 8989
+requires:
+  - configs:
+      - kuberay-mlflow-mlfow-storage
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: ml-k8s-stack
+build:
+  artifacts:
+    - image: afoley587/coding-challenges/kuberay-mlflow
+      context: python/
+      docker:
+        dockerfile: Dockerfile
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+manifests:
+  rawYaml:
+    - k8s/ray/ray-service.yaml
+resourceSelector:
+  allow:
+    - groupKind: "RayService.ray.io"
+      image: [".*"]
+      labels: [".*"]
+portForward:
+  # Port-forward the dashboard
+  - resourceType: service
+    resourceName: rayservice-demo-head-svc
+    namespace: kuberay-mlflow
+    port: 8265
+    localPort: 8265
+  - resourceType: service
+    resourceName: rayservice-demo-head-svc
+    namespace: kuberay-mlflow
+    port: 10001
+    localPort: 10001
+  - resourceType: service
+    resourceName: rayservice-demo-serve-svc
+    namespace: kuberay-mlflow
+    port: 8000
+    localPort: 8000
+requires:
+  - configs:
+      - kuberay-mlflow-namespace
+      - kuberay-mlflow-ray-operator
+      - kuberay-mlflow-mlfow
+      - kuberay-mlflow-redis
