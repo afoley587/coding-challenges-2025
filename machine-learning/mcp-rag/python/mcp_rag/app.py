@@ -12,13 +12,19 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 import uvicorn
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastmcp import Context, FastMCP
 from fastmcp.dependencies import Depends as FastMCPDepends
 from mcp_rag.core.config import MCPServerConfig
-from mcp_rag.db.pool import DatabaseConnectionPool
+from mcp_rag.core.errors import (
+    DependencyInitializationError,
+    RAGServiceError,
+    error_response,
+)
+from mcp_rag.dependencies import close_resources, get_config, get_rag_service
 from mcp_rag.schemas import (
     DatabaseStatsResponse,
     DocumentListResponse,
@@ -26,6 +32,7 @@ from mcp_rag.schemas import (
     RAGErrorResponse,
     ReadinessResponse,
     RootResponse,
+    SearchRequest,
     SearchResponse,
     SemanticSearchResponse,
 )
@@ -44,10 +51,7 @@ async def app_lifespan(app: FastAPI):
 
     yield
     logger.info("Shutting down the app...")
-
-    global _db_pool
-    if _db_pool:
-        _db_pool.close()
+    close_resources()
 
 
 @asynccontextmanager
@@ -64,24 +68,6 @@ api = FastAPI(
     version="1.0.0",
     lifespan=combined_lifespan,
 )
-
-_config = None
-_db_pool = None
-_rag_service = None
-
-
-def get_rag_service() -> RAGService:
-    """Get or initialize RAG service."""
-    global _rag_service, _config, _db_pool
-
-    if _rag_service is None:
-        if _config is None:
-            _config = MCPServerConfig()
-        if _db_pool is None:
-            _db_pool = DatabaseConnectionPool(_config)
-        _rag_service = RAGService(_config, _db_pool)
-
-    return _rag_service
 
 
 @api.get("/", response_model=RootResponse)
@@ -105,9 +91,9 @@ async def health_check(rag_service: RAGService = Depends(get_rag_service)):
             content=health_response.model_dump(), status_code=status_code
         )
 
-    except Exception as e:
+    except RAGServiceError as e:
         logger.error(f"Health check failed: {e}", exc_info=True)
-        return JSONResponse({"status": "unhealthy", "error": str(e)}, status_code=503)
+        return error_response(str(e), status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 @api.get("/readiness", response_model=ReadinessResponse)
@@ -133,8 +119,29 @@ async def readiness_check(rag_service: RAGService = Depends(get_rag_service)):
         status_code = 200 if readiness_response.ready else 503
         return JSONResponse(readiness_response.model_dump(), status_code=status_code)
 
-    except Exception as e:
-        return JSONResponse({"ready": False, "error": str(e)}, status_code=503)
+    except RAGServiceError as e:
+        logger.error(f"Readiness check failed: {e}", exc_info=True)
+        return error_response(str(e), status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+@api.post(
+    "/search",
+    response_model=SearchResponse,
+    responses={status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": RAGErrorResponse}},
+)
+async def search_documents(
+    payload: SearchRequest, rag_service: RAGService = Depends(get_rag_service)
+):
+    """HTTP endpoint for semantic RAG search with validation."""
+
+    try:
+        result = rag_service.search_documents(
+            payload.query.strip(), max_results=payload.max_results
+        )
+        return SearchResponse(**result)
+    except RAGServiceError as exc:
+        logger.error("Search failed", exc_info=exc)
+        return error_response(str(exc), status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @mcp.tool()
@@ -159,13 +166,21 @@ async def search_k8s_docs(
     await ctx.info(f"Searching K8s docs for: {query[:80]}...")
     await ctx.report_progress(0, 100, "Querying vector database...")
 
-    result = rag_service.search_documents(query, max_results)
+    clean_query = query.strip()
+    if not clean_query:
+        return RAGErrorResponse(error="Query cannot be empty")
 
-    if result["success"]:
-        await ctx.report_progress(100, 100, "Search complete")
-        await ctx.debug(f"Found {result['num_sources']} source documents")
+    try:
+        result = rag_service.search_documents(clean_query, max_results)
 
-    return SearchResponse(**result)
+        if result["success"]:
+            await ctx.report_progress(100, 100, "Search complete")
+            await ctx.debug(f"Found {result['num_sources']} source documents")
+
+        return SearchResponse(**result)
+    except RAGServiceError as exc:
+        await ctx.error(str(exc))
+        return RAGErrorResponse(error=str(exc))
 
 
 @mcp.tool()
@@ -201,9 +216,12 @@ async def search_with_confirmation(
 
     await ctx.info("Search confirmed, proceeding...")
 
-    result = rag_service.search_documents(query)
-
-    return SearchResponse(**result)
+    try:
+        result = rag_service.search_documents(query)
+        return SearchResponse(**result)
+    except RAGServiceError as exc:
+        await ctx.error(str(exc))
+        return RAGErrorResponse(error=str(exc))
 
 
 @mcp.tool()
@@ -220,14 +238,10 @@ async def get_database_stats(
         stats = rag_service.stats()
         return DatabaseStatsResponse(**stats)
 
-    except Exception as e:
+    except RAGServiceError as e:
         logger.error(f"Error getting stats: {e}", exc_info=True)
         await ctx.error(f"Failed to retrieve stats: {str(e)}")
-        return RAGErrorResponse(
-            success=False,
-            error=str(e),
-            timestamp=datetime.now().isoformat(),
-        )
+        return RAGErrorResponse(error=str(e))
 
 
 @mcp.tool()
@@ -247,14 +261,10 @@ async def list_available_documents(
 
         return DocumentListResponse(**result)
 
-    except Exception as e:
+    except RAGServiceError as e:
         logger.error(f"Error listing documents: {e}", exc_info=True)
         await ctx.error(f"Failed to list documents: {str(e)}")
-        return RAGErrorResponse(
-            success=False,
-            error=str(e),
-            timestamp=datetime.now().isoformat(),
-        )
+        return RAGErrorResponse(error=str(e))
 
 
 @mcp.tool()
@@ -278,12 +288,17 @@ async def search_by_document(
     if ctx:
         await ctx.info(f"Searching in {source_file}...")
 
-    result = rag_service.semantic_search(query, source_file, max_results)
+    try:
+        result = rag_service.semantic_search(query, source_file, max_results)
 
-    if ctx and result["success"]:
-        await ctx.debug(f"Found {result['total_results']} results in {source_file}")
+        if ctx and result["success"]:
+            await ctx.debug(f"Found {result['total_results']} results in {source_file}")
 
-    return SemanticSearchResponse(**result)
+        return SemanticSearchResponse(**result)
+    except RAGServiceError as exc:
+        if ctx:
+            await ctx.error(str(exc))
+        return RAGErrorResponse(error=str(exc))
 
 
 @mcp.resource("k8s://stats")
@@ -295,10 +310,11 @@ async def k8s_stats_resource(
     LLM can read this to understand what's available.
     """
     await ctx.debug("Reading k8s://stats resource")
-    stats = rag_service.stats()
-
-    if not stats["success"]:
-        return f"Error: {stats.get('error', 'Unknown error')}"
+    try:
+        stats = rag_service.stats()
+    except RAGServiceError as exc:
+        await ctx.error(str(exc))
+        return f"Error: {str(exc)}"
 
     return f"""Kubernetes Documentation Database Statistics:
 - Total indexed chunks: {stats['total_chunks']}
@@ -423,13 +439,35 @@ def setup_logging(config: MCPServerConfig):
     logging.basicConfig(level=log_level, format=config.log_format, handlers=handlers)
 
 
+def register_exception_handlers(application: FastAPI) -> None:
+    """Register global exception handlers for consistent API responses."""
+
+    @application.exception_handler(RAGServiceError)
+    async def handle_rag_service_error(request: Request, exc: RAGServiceError):
+        logger.warning("RAG service error", exc_info=exc)
+        return error_response(str(exc), status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @application.exception_handler(RequestValidationError)
+    async def handle_validation_error(
+        request: Request, exc: RequestValidationError
+    ):  # pragma: no cover - FastAPI integration
+        logger.info("Validation error for request %s", request.url.path)
+        return error_response(
+            "Invalid request body", status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+
+    @application.exception_handler(Exception)
+    async def handle_generic_error(request: Request, exc: Exception):
+        logger.error("Unhandled error", exc_info=exc)
+        return error_response(
+            "Internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    global _config
-
     try:
-        _config = MCPServerConfig()
-        config = _config
+        config = get_config()
     except ValueError as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -462,6 +500,8 @@ def create_app() -> FastAPI:
         max_age=3600,
     )
     api.mount("/mcp", fastmcp_http)
+
+    register_exception_handlers(api)
 
     logger.info("FastAPI application configured")
 

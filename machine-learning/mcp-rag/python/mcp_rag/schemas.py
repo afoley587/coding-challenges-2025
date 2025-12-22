@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -85,7 +86,19 @@ class RAGErrorResponse(BaseModel):
 
     success: bool = Field(default=False, description="Always false for errors")
     error: str = Field(description="Error message")
-    timestamp: str = Field(description="ISO 8601 timestamp")
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now().isoformat(),
+        description="ISO 8601 timestamp",
+    )
+
+
+class SearchRequest(BaseModel):
+    """Request body for generic search operations."""
+
+    query: str = Field(..., min_length=3, description="Search query or question")
+    max_results: int = Field(
+        5, ge=1, le=25, description="Maximum number of documents to retrieve"
+    )
 
 
 class SemanticSearchResult(BaseModel):

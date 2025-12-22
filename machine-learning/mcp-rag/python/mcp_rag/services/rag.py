@@ -9,6 +9,7 @@ from langchain_classic.prompts import PromptTemplate
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from langchain_postgres import PGVector
 from mcp_rag.core.config import MCPServerConfig
+from mcp_rag.core.errors import RAGServiceError
 from mcp_rag.db.pool import DatabaseConnectionPool
 from psycopg2.extras import RealDictCursor
 
@@ -40,7 +41,7 @@ class RAGService:
                 self.logger.info("Embeddings model loaded successfully")
             except Exception as e:
                 self.logger.error(f"Failed to load embeddings: {e}", exc_info=True)
-                raise
+                raise RAGServiceError("Unable to load embeddings") from e
         return self._embeddings
 
     @property
@@ -58,7 +59,7 @@ class RAGService:
                 self.logger.info("LLM loaded successfully")
             except Exception as e:
                 self.logger.error(f"Failed to load LLM: {e}", exc_info=True)
-                raise
+                raise RAGServiceError("Unable to load LLM") from e
         return self._llm
 
     @property
@@ -79,16 +80,15 @@ class RAGService:
                 self.logger.error(
                     f"Failed to initialize vectorstore: {e}", exc_info=True
                 )
-                raise
+                raise RAGServiceError("Unable to initialize vectorstore") from e
         return self._vectorstore
 
-    @property
-    def qa_chain(self):
-        """Lazy load QA chain."""
-        if self._qa_chain is None:
-            self.logger.info("Initializing RAG QA chain")
-            try:
-                prompt_template = """You are a Kubernetes expert assistant. Use the following pieces of context from the Kubernetes documentation to answer the question.
+    def get_qa_chain(self, max_results: Optional[int] = None):
+        """Get or build a QA chain with an optional result cap."""
+        top_k = max_results or self.config.top_k_results
+
+        def _build_chain(k: int) -> RetrievalQA:
+            prompt_template = """You are a Kubernetes expert assistant. Use the following pieces of context from the Kubernetes documentation to answer the question.
 
 If you don't know the answer based on the provided context, say so. Don't make up answers.
 
@@ -101,26 +101,32 @@ Question: {question}
 
 Helpful Answer:"""
 
-                prompt = PromptTemplate(
-                    template=prompt_template, input_variables=["context", "question"]
-                )
+            prompt = PromptTemplate(
+                template=prompt_template, input_variables=["context", "question"]
+            )
 
-                self._qa_chain = RetrievalQA.from_chain_type(
-                    llm=self.llm,
-                    chain_type="stuff",
-                    retriever=self.vectorstore.as_retriever(
-                        search_kwargs={"k": self.config.top_k_results}
-                    ),
-                    return_source_documents=True,
-                    chain_type_kwargs={"prompt": prompt},
-                )
+            return RetrievalQA.from_chain_type(
+                llm=self.llm,
+                chain_type="stuff",
+                retriever=self.vectorstore.as_retriever(search_kwargs={"k": k}),
+                return_source_documents=True,
+                chain_type_kwargs={"prompt": prompt},
+            )
 
+        if self._qa_chain is None and top_k == self.config.top_k_results:
+            try:
+                self.logger.info("Initializing RAG QA chain")
+                self._qa_chain = _build_chain(top_k)
                 self.logger.info("QA chain initialized successfully")
             except Exception as e:
                 self.logger.error(f"Failed to initialize QA chain: {e}", exc_info=True)
-                raise
+                raise RAGServiceError("Unable to initialize QA chain") from e
 
-        return self._qa_chain
+        return (
+            self._qa_chain
+            if top_k == self.config.top_k_results
+            else _build_chain(top_k)
+        )
 
     def search_documents(self, query: str, max_results: Optional[int] = None) -> dict:
         """Search documents using RAG."""
@@ -128,7 +134,8 @@ Helpful Answer:"""
         self.logger.info(f"Processing RAG query: {query[:100]}...")
 
         try:
-            result = self.qa_chain.invoke({"query": query})
+            qa_chain = self.get_qa_chain(max_results)
+            result = qa_chain.invoke({"query": query})
 
             sources = []
             if result.get("source_documents"):
@@ -158,12 +165,9 @@ Helpful Answer:"""
 
         except Exception as e:
             self.logger.error(f"Error processing query: {e}", exc_info=True)
-            return {
-                "success": False,
-                "error": str(e),
-                "query": query,
-                "timestamp": datetime.now().isoformat(),
-            }
+            raise RAGServiceError(
+                "Failed to process query", context={"query": query}
+            ) from e
 
     def semantic_search(
         self, query: str, source_file: Optional[str] = None, max_results: int = 3
@@ -232,7 +236,9 @@ Helpful Answer:"""
 
         except Exception as e:
             self.logger.error(f"Error in semantic search: {e}", exc_info=True)
-            return {"success": False, "error": str(e), "query": query}
+            raise RAGServiceError(
+                "Semantic search failed", context={"query": query}
+            ) from e
 
     def stats(self):
         start_time = time.time()
@@ -276,7 +282,7 @@ Helpful Answer:"""
 
         except Exception as e:
             self.logger.error(f"Error getting stats: {e}", exc_info=True)
-            raise
+            raise RAGServiceError("Unable to retrieve database stats") from e
 
     def list_available_documents(self):
         start_time = time.time()
@@ -327,7 +333,7 @@ Helpful Answer:"""
             }
         except Exception as e:
             self.logger.error(f"Error listing documents: {e}", exc_info=True)
-            raise
+            raise RAGServiceError("Unable to list documents") from e
 
     def get_health_status(self) -> dict:
         """
