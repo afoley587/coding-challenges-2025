@@ -1,0 +1,53 @@
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: mcp-rag-namespace
+manifests:
+  rawYaml:
+    - k8s/namespace.yaml
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: system-mcp-rag
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+manifests:
+  rawYaml:
+    - k8s/ollama-statefulset.yaml
+    - k8s/postgres-statefulset.yaml
+requires:
+  - configs:
+      - mcp-rag-namespace
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: mcp-rag-deployments
+build:
+  artifacts:
+    - image: afoley587/coding-challenges/mcp-rag
+      context: python/
+      docker:
+        dockerfile: Dockerfile
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+manifests:
+  rawYaml:
+    - k8s/app-deployment.yaml
+# Automatically forward the service to localhost
+portForward:
+  - resourceType: service
+    resourceName: k8s-rag-mcp-service
+    namespace: mcp-rag
+    port: 8080
+    localPort: 8080
+requires:
+  - configs:
+      - ollama-fastapi-namespace

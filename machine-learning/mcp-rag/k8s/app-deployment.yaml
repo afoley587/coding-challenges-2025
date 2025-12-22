@@ -1,0 +1,131 @@
+---
+# Ingestion Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k8s-docs-ingestion
+  namespace: mcp-rag
+spec:
+  template:
+    metadata:
+      labels:
+        app: k8s-docs-ingestion
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingestor
+          image: afoley587/coding-challenges/mcp-rag:latest
+          command: ["python", "mcp_rag/ingest.py"]
+          envFrom:
+            - configMapRef:
+                name: k8s-rag-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: DOCS_DIRECTORY
+              value: "/app/k8s_docs"
+          volumeMounts:
+            - name: docs-volume
+              mountPath: /app/k8s_docs
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2000m"
+            limits:
+              memory: "8Gi"
+              cpu: "4000m"
+      volumes:
+        - name: docs-volume
+          persistentVolumeClaim:
+            claimName: k8s-docs-pvc
+---
+# PVC for K8s documentation PDFs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: k8s-docs-pvc
+  namespace: mcp-rag
+spec:
+  accessModes:
+    - ReadWriteMany # Multiple pods can read
+  resources:
+    requests:
+      storage: 5Gi
+---
+# MCP Server Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-rag-mcp-server
+  namespace: mcp-rag
+spec:
+  replicas: 2 # Scale for availability
+  selector:
+    matchLabels:
+      app: k8s-rag-mcp-server
+  template:
+    metadata:
+      labels:
+        app: k8s-rag-mcp-server
+    spec:
+      containers:
+        - name: mcp-server
+          image: afoley587/coding-challenges/mcp-rag
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: k8s-rag-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+# MCP Server Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-rag-mcp-service
+  namespace: mcp-rag
+spec:
+  selector:
+    app: k8s-rag-mcp-server
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: LoadBalancer # Or ClusterIP if using Ingress
