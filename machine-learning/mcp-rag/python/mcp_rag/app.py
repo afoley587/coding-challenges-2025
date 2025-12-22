@@ -150,7 +150,7 @@ async def search_k8s_docs(
     ctx: Context,
     max_results: int = 5,
     rag_service: RAGService = FastMCPDepends(get_rag_service),
-) -> SearchResponse:
+) -> SearchResponse | RAGErrorResponse:
     """
     Search Kubernetes documentation using semantic search and RAG.
 
@@ -173,13 +173,14 @@ async def search_k8s_docs(
     try:
         result = rag_service.search_documents(clean_query, max_results)
 
-        if result["success"]:
+        if result.get("success"):
             await ctx.report_progress(100, 100, "Search complete")
             await ctx.debug(f"Found {result['num_sources']} source documents")
 
         return SearchResponse(**result)
     except RAGServiceError as exc:
         await ctx.error(str(exc))
+        await ctx.report_progress(0, 100, "Search failed")
         return RAGErrorResponse(error=str(exc))
 
 
@@ -221,6 +222,7 @@ async def search_with_confirmation(
         return SearchResponse(**result)
     except RAGServiceError as exc:
         await ctx.error(str(exc))
+        await ctx.report_progress(0, 100, "Search failed")
         return RAGErrorResponse(error=str(exc))
 
 
@@ -255,9 +257,7 @@ async def list_available_documents(
     try:
         result = rag_service.list_available_documents()
 
-        await ctx.debug(
-            f"Found {len(result['documents'])} documents in {result['duration']:.2f}s"
-        )
+        await ctx.debug(f"Found {len(result['documents'])} documents")
 
         return DocumentListResponse(**result)
 

@@ -11,6 +11,9 @@ fmt:  ## Format the code using black
 		poetry run black ./ && \
 		poetry run isort --profile black ./
 
+ingest:  ## Ingest PDF documents
+	@echo "Ingesting files..."
+
 minikube-start: ## Start minikube with appropriate resources
 	@echo "Starting minikube..."
 	minikube start --cpus=8 --memory=8192 --disk-size=30g

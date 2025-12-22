@@ -4,11 +4,15 @@ Kubernetes Documentation Ingestion Script - PostgreSQL + pgvector
 Production-grade PDF ingestion pipeline with configuration management and proper logging
 """
 
+from __future__ import annotations
+
 import hashlib
 import logging
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Iterable
 
 import fitz  # PyMuPDF
 import psycopg2
@@ -68,88 +72,83 @@ class PostgresVectorStore:
                     self.logger.error("Max connection attempts reached, aborting")
                     raise
 
-    def _get_connection(self):
-        """Get a connection from the pool."""
+    @contextmanager
+    def _connection(self, *, cursor_factory=None):
+        """Context manager that yields a pooled connection and cursor."""
+
         if not self.connection_pool:
             raise RuntimeError("Connection pool not initialized")
-        return self.connection_pool.getconn()
 
-    def _return_connection(self, conn):
-        """Return a connection to the pool."""
-        if self.connection_pool:
+        conn = self.connection_pool.getconn()
+        cursor = conn.cursor(cursor_factory=cursor_factory)
+        try:
+            yield conn, cursor
+        finally:
+            cursor.close()
             self.connection_pool.putconn(conn)
 
     def _initialize_schema(self):
         """Create tables and install pgvector extension."""
-        conn = None
         try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
+            with self._connection() as (conn, cursor):
+                self.logger.info("Installing pgvector extension...")
+                cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
-            self.logger.info("Installing pgvector extension...")
-            cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-
-            self.logger.info("Creating k8s_documents table...")
-            cursor.execute(
+                self.logger.info("Creating k8s_documents table...")
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS k8s_documents (
+                        id TEXT PRIMARY KEY,
+                        content TEXT NOT NULL,
+                        embedding vector(%s),
+                        source_file TEXT NOT NULL,
+                        file_path TEXT,
+                        page_number INTEGER,
+                        chunk_index INTEGER,
+                        ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        metadata JSONB,
+                        CONSTRAINT valid_page_number CHECK (page_number > 0),
+                        CONSTRAINT valid_chunk_index CHECK (chunk_index >= 0)
+                    );
                 """
-                CREATE TABLE IF NOT EXISTS k8s_documents (
-                    id TEXT PRIMARY KEY,
-                    content TEXT NOT NULL,
-                    embedding vector(%s),
-                    source_file TEXT NOT NULL,
-                    file_path TEXT,
-                    page_number INTEGER,
-                    chunk_index INTEGER,
-                    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    metadata JSONB,
-                    CONSTRAINT valid_page_number CHECK (page_number > 0),
-                    CONSTRAINT valid_chunk_index CHECK (chunk_index >= 0)
-                );
-            """
-                % self.config.embedding_dimension
-            )
+                    % self.config.embedding_dimension
+                )
 
-            self.logger.info("Creating indexes...")
-            # Vector similarity index
-            cursor.execute(
+                self.logger.info("Creating indexes...")
+                # Vector similarity index
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS k8s_documents_embedding_idx
+                    ON k8s_documents
+                    USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100);
                 """
-                CREATE INDEX IF NOT EXISTS k8s_documents_embedding_idx
-                ON k8s_documents
-                USING ivfflat (embedding vector_cosine_ops)
-                WITH (lists = 100);
-            """
-            )
+                )
 
-            # Source file index for filtering
-            cursor.execute(
+                # Source file index for filtering
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS k8s_documents_source_idx
+                    ON k8s_documents (source_file);
                 """
-                CREATE INDEX IF NOT EXISTS k8s_documents_source_idx
-                ON k8s_documents (source_file);
-            """
-            )
+                )
 
-            # Ingestion timestamp index for tracking
-            cursor.execute(
+                # Ingestion timestamp index for tracking
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS k8s_documents_ingested_idx
+                    ON k8s_documents (ingested_at DESC);
                 """
-                CREATE INDEX IF NOT EXISTS k8s_documents_ingested_idx
-                ON k8s_documents (ingested_at DESC);
-            """
-            )
+                )
 
-            conn.commit()
-            self.logger.info("Database schema initialized successfully")
+                conn.commit()
+                self.logger.info("Database schema initialized successfully")
 
         except Exception as e:
-            if conn:
-                conn.rollback()
             self.logger.error(f"Failed to initialize schema: {e}")
             raise
-        finally:
-            if conn:
-                cursor.close()
-                self._return_connection(conn)
 
-    def insert_chunks(self, chunks: list[dict]) -> tuple[int, int]:
+    def insert_chunks(self, chunks: list[dict[str, Any]]) -> tuple[int, int]:
         """
         Insert document chunks with embeddings.
 
@@ -163,140 +162,129 @@ class PostgresVectorStore:
             self.logger.warning("No chunks to insert")
             return 0, 0
 
-        conn = None
         inserted = 0
         updated = 0
 
         try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
+            with self._connection() as (conn, cursor):
+                values = self._build_chunk_values(chunks)
 
-            values = [
-                (
-                    chunk["id"],
-                    chunk["text"],
-                    chunk["embedding"],
-                    chunk["metadata"]["source_file"],
-                    chunk["metadata"]["file_path"],
-                    chunk["metadata"]["page_number"],
-                    chunk["metadata"]["chunk_index"],
-                    chunk["metadata"].get("metadata_json"),
+                execute_values(
+                    cursor,
+                    """
+                    INSERT INTO k8s_documents
+                    (id, content, embedding, source_file, file_path, page_number, chunk_index, metadata)
+                    VALUES %s
+                    ON CONFLICT (id) DO UPDATE SET
+                        content = EXCLUDED.content,
+                        embedding = EXCLUDED.embedding,
+                        ingested_at = CURRENT_TIMESTAMP
+                    RETURNING (xmax = 0) AS inserted
+                    """,
+                    values,
                 )
-                for chunk in chunks
-            ]
 
-            execute_values(
-                cursor,
-                """
-                INSERT INTO k8s_documents
-                (id, content, embedding, source_file, file_path, page_number, chunk_index, metadata)
-                VALUES %s
-                ON CONFLICT (id) DO UPDATE SET
-                    content = EXCLUDED.content,
-                    embedding = EXCLUDED.embedding,
-                    ingested_at = CURRENT_TIMESTAMP
-                RETURNING (xmax = 0) AS inserted
-                """,
-                values,
-            )
+                # Count inserts vs updates
+                results = cursor.fetchall()
+                inserted = sum(1 for r in results if r[0])
+                updated = len(results) - inserted
 
-            # Count inserts vs updates
-            results = cursor.fetchall()
-            inserted = sum(1 for r in results if r[0])
-            updated = len(results) - inserted
-
-            conn.commit()
-            self.logger.debug(
-                f"Batch insert: {inserted} new, {updated} updated, {len(chunks)} total"
-            )
+                conn.commit()
+                self.logger.debug(
+                    f"Batch insert: {inserted} new, {updated} updated, {len(chunks)} total"
+                )
 
         except Exception as e:
-            if conn:
-                conn.rollback()
             self.logger.error(f"Failed to insert chunks: {e}")
             raise
-        finally:
-            if conn:
-                cursor.close()
-                self._return_connection(conn)
 
         return inserted, updated
 
+    def _build_chunk_values(self, chunks: Iterable[dict[str, Any]]):
+        """Prepare chunk values for insertion while validating required fields."""
+
+        values = []
+        for chunk in chunks:
+            metadata = chunk.get("metadata", {})
+            try:
+                values.append(
+                    (
+                        chunk["id"],
+                        chunk["text"],
+                        chunk["embedding"],
+                        metadata["source_file"],
+                        metadata.get("file_path"),
+                        metadata.get("page_number"),
+                        metadata.get("chunk_index"),
+                        metadata.get("metadata_json"),
+                    )
+                )
+            except KeyError as exc:
+                raise ValueError(
+                    f"Missing required chunk field: {exc.args[0]}"
+                ) from exc
+
+        return values
+
     def get_stats(self) -> dict:
         """Get database statistics."""
-        conn = None
         try:
-            conn = self._get_connection()
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            with self._connection(cursor_factory=RealDictCursor) as (conn, cursor):
+                # Total chunks
+                cursor.execute("SELECT COUNT(*) as count FROM k8s_documents;")
+                total_chunks = cursor.fetchone()["count"]
 
-            # Total chunks
-            cursor.execute("SELECT COUNT(*) as count FROM k8s_documents;")
-            total_chunks = cursor.fetchone()["count"]
+                # Unique documents
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT source_file) as count FROM k8s_documents;"
+                )
+                unique_docs = cursor.fetchone()["count"]
 
-            # Unique documents
-            cursor.execute(
-                "SELECT COUNT(DISTINCT source_file) as count FROM k8s_documents;"
-            )
-            unique_docs = cursor.fetchone()["count"]
-
-            # List of source files with counts
-            cursor.execute(
+                # List of source files with counts
+                cursor.execute(
+                    """
+                    SELECT
+                        source_file,
+                        COUNT(*) as chunk_count,
+                        MIN(ingested_at) as first_ingested,
+                        MAX(ingested_at) as last_updated
+                    FROM k8s_documents
+                    GROUP BY source_file
+                    ORDER BY source_file;
                 """
-                SELECT
-                    source_file,
-                    COUNT(*) as chunk_count,
-                    MIN(ingested_at) as first_ingested,
-                    MAX(ingested_at) as last_updated
-                FROM k8s_documents
-                GROUP BY source_file
-                ORDER BY source_file;
-            """
-            )
-            source_files = cursor.fetchall()
+                )
+                source_files = cursor.fetchall()
 
-            # Database size
-            cursor.execute(
+                # Database size
+                cursor.execute(
+                    """
+                    SELECT pg_size_pretty(pg_database_size(current_database())) as db_size;
                 """
-                SELECT pg_size_pretty(pg_database_size(current_database())) as db_size;
-            """
-            )
-            db_size = cursor.fetchone()["db_size"]
+                )
+                db_size = cursor.fetchone()["db_size"]
 
-            cursor.close()
-
-            return {
-                "total_chunks": total_chunks,
-                "unique_documents": unique_docs,
-                "source_files": [dict(f) for f in source_files],
-                "database_size": db_size,
-            }
+                return {
+                    "total_chunks": total_chunks,
+                    "unique_documents": unique_docs,
+                    "source_files": [dict(f) for f in source_files],
+                    "database_size": db_size,
+                }
 
         except Exception as e:
             self.logger.error(f"Failed to get stats: {e}")
-            return {"error": str(e)}
-        finally:
-            if conn:
-                self._return_connection(conn)
+            raise
 
     def reset(self):
         """Delete all documents."""
-        conn = None
         try:
             self.logger.warning("Resetting database - all data will be deleted")
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            cursor.execute("TRUNCATE TABLE k8s_documents;")
-            conn.commit()
-            cursor.close()
-            self.logger.info("Database reset complete")
+            with self._connection() as (conn, cursor):
+                cursor.execute("TRUNCATE TABLE k8s_documents;")
+                conn.commit()
+                self.logger.info("Database reset complete")
         except Exception as e:
-            if conn:
-                conn.rollback()
             self.logger.error(f"Failed to reset database: {e}")
             raise
-        finally:
-            if conn:
-                self._return_connection(conn)
 
     def close(self):
         """Close all connections in the pool."""
@@ -359,31 +347,31 @@ class K8sDocumentIngestor:
         """
         pages_data = []
 
+        self._validate_pdf_path(pdf_path)
+
         try:
             self.logger.info(f"Opening PDF: {pdf_path.name}")
-            doc = fitz.open(pdf_path)
-            total_pages = len(doc)
+            with fitz.open(pdf_path) as doc:
+                total_pages = len(doc)
 
-            self.logger.debug(f"PDF contains {total_pages} pages")
+                self.logger.debug(f"PDF contains {total_pages} pages")
 
-            for page_num in range(total_pages):
-                page = doc[page_num]
-                text = page.get_text()
+                for page_num in range(total_pages):
+                    page = doc[page_num]
+                    text = page.get_text()
 
-                if not text.strip():
-                    self.logger.debug(f"Skipping empty page {page_num + 1}")
-                    continue
+                    if not text.strip():
+                        self.logger.debug(f"Skipping empty page {page_num + 1}")
+                        continue
 
-                pages_data.append(
-                    {
-                        "text": text,
-                        "page_number": page_num + 1,
-                        "source_file": pdf_path.name,
-                        "file_path": str(pdf_path.absolute()),
-                    }
-                )
-
-            doc.close()
+                    pages_data.append(
+                        {
+                            "text": text,
+                            "page_number": page_num + 1,
+                            "source_file": pdf_path.name,
+                            "file_path": str(pdf_path.absolute()),
+                        }
+                    )
 
             non_empty = len(pages_data)
             self.logger.info(
@@ -395,6 +383,16 @@ class K8sDocumentIngestor:
             raise
 
         return pages_data
+
+    def _validate_pdf_path(self, pdf_path: Path) -> None:
+        """Raise helpful errors when the supplied path is invalid."""
+
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"PDF not found: {pdf_path}")
+        if not pdf_path.is_file():
+            raise ValueError(f"PDF path is not a file: {pdf_path}")
+        if pdf_path.suffix.lower() != ".pdf":
+            raise ValueError(f"Unsupported file type (expected .pdf): {pdf_path}")
 
     def chunk_documents(self, pages_data: list[dict]) -> list[dict]:
         """
@@ -460,6 +458,18 @@ class K8sDocumentIngestor:
                 convert_to_numpy=True,
                 normalize_embeddings=True,  # Normalize for cosine similarity
             )
+
+            if embeddings is None or len(embeddings) != len(texts):
+                raise RuntimeError(
+                    "Embedding model returned an unexpected number of vectors"
+                )
+
+            expected_dim = self.config.embedding_dimension
+            actual_dim = len(embeddings[0]) if len(embeddings) else 0
+            if expected_dim and actual_dim and expected_dim != actual_dim:
+                raise ValueError(
+                    f"Embedding dimension mismatch: expected {expected_dim}, got {actual_dim}"
+                )
 
             # Add embeddings to chunks
             for i, chunk in enumerate(chunks):
@@ -565,6 +575,7 @@ class K8sDocumentIngestor:
         total_updated = 0
         successful_files = 0
         failed_files = []
+        failed_file_errors: list[dict[str, str]] = []
 
         for pdf_path in tqdm(pdf_files, desc="Processing PDFs", unit="file"):
             try:
@@ -576,6 +587,7 @@ class K8sDocumentIngestor:
             except Exception as e:
                 self.logger.error(f"Failed to process {pdf_path.name}: {e}")
                 failed_files.append(pdf_path.name)
+                failed_file_errors.append({"file": pdf_path.name, "error": str(e)})
 
         total_duration = time.time() - start_time
 
@@ -588,11 +600,14 @@ class K8sDocumentIngestor:
             "total_updated": total_updated,
             "duration": total_duration,
             "failed_file_list": failed_files,
+            "failed_file_errors": failed_file_errors,
         }
 
     def get_stats(self) -> dict:
         """Get database statistics."""
         stats = self.db.get_stats()
+        if "error" in stats:
+            raise RuntimeError(f"Failed to fetch database stats: {stats['error']}")
         stats["embedding_model"] = self.config.embedding_model
         stats["chunk_size"] = self.config.chunk_size
         return stats
@@ -771,6 +786,12 @@ Examples:
 
         if results["failed_file_list"]:
             logger.warning(f"Failed files: {', '.join(results['failed_file_list'])}")
+            for failure in results.get("failed_file_errors", []):
+                logger.warning(
+                    "  • %s: %s",
+                    failure.get("file"),
+                    failure.get("error", "unknown error"),
+                )
 
         # Show final stats
         stats = ingestor.get_stats()

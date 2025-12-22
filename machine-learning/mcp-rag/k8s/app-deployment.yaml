@@ -1,65 +1,4 @@
 ---
-# Ingestion Job
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: k8s-docs-ingestion
-  namespace: mcp-rag
-spec:
-  template:
-    metadata:
-      labels:
-        app: k8s-docs-ingestion
-    spec:
-      restartPolicy: OnFailure
-      containers:
-        - name: ingestor
-          image: afoley587/coding-challenges/mcp-rag:latest
-          command: ["python", "mcp_rag/ingest.py"]
-          envFrom:
-            - configMapRef:
-                name: k8s-rag-config
-          env:
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-credentials
-                  key: POSTGRES_USER
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-credentials
-                  key: POSTGRES_PASSWORD
-            - name: DOCS_DIRECTORY
-              value: "/app/k8s_docs"
-          volumeMounts:
-            - name: docs-volume
-              mountPath: /app/k8s_docs
-          resources:
-            requests:
-              memory: "4Gi"
-              cpu: "2000m"
-            limits:
-              memory: "8Gi"
-              cpu: "4000m"
-      volumes:
-        - name: docs-volume
-          persistentVolumeClaim:
-            claimName: k8s-docs-pvc
----
-# PVC for K8s documentation PDFs
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: k8s-docs-pvc
-  namespace: mcp-rag
-spec:
-  accessModes:
-    - ReadWriteMany # Multiple pods can read
-  resources:
-    requests:
-      storage: 5Gi
----
 # MCP Server Deployment
 apiVersion: apps/v1
 kind: Deployment
@@ -128,4 +67,4 @@ spec:
   ports:
     - port: 8080
       targetPort: 8080
-  type: LoadBalancer # Or ClusterIP if using Ingress
+  type: ClusterIP

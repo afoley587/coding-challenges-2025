@@ -24,6 +24,12 @@ manifests:
 requires:
   - configs:
       - mcp-rag-namespace
+portForward:
+  - resourceType: service
+    resourceName: postgres-service
+    namespace: mcp-rag
+    port: 5432
+    localPort: 55432
 ---
 apiVersion: skaffold/v4beta13
 kind: Config
