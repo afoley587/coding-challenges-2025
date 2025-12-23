@@ -207,8 +207,8 @@ commands:
 
 For brevity, we will only discuss the `ADD` command in
 depth.
-The full code can be found
-[on GitHub]().
+The full code can be found in my
+[GitHub repo](https://github.com/afoley587/coding-challenges-2025/tree/main/kubernetes/custom-cni)!
 
 ### `ADD`
 
@@ -523,7 +523,7 @@ to automate the build and deployment of the CNI to a local
 kubernetes (minikube) cluster.
 
 If you're using the
-[github repo](),
+[GitHub repo](https://github.com/afoley587/coding-challenges-2025/tree/main/kubernetes/custom-cni),
 you can use the `Makefile`.
 
 In one terminal, let's run `skaffold` and `minikube`:
@@ -650,4 +650,4 @@ as expected and is forwarding traffic to and from the pod.
 Thanks for following along with me!
 If you liked the post, please comment or clap!
 All code is public and available on my
-[GitHub repository]().
+[GitHub repo](https://github.com/afoley587/coding-challenges-2025/tree/main/kubernetes/custom-cni)!
