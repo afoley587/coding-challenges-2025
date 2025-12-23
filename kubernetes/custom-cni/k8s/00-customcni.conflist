@@ -1,0 +1,21 @@
+{
+  "cniVersion": "1.0.0",
+  "name": "custom-bridge",
+  "plugins": [
+    {
+      "type": "custom-bridge",
+      "mtu": 1450,
+      "masquerade": true,
+      "masqueradeBackend": "iptables",
+      "ipam": {
+        "type": "host-local",
+        "routes": [
+            { "dst": "0.0.0.0/0" }
+        ],
+        "ranges": [
+          [{ "subnet": "10.88.0.0/24" }]
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+apiVersion: skaffold/v4beta13
+kind: Config
+build:
+  artifacts:
+    - image: afoley587/coding-challenges/custom-cni
+      context: .
+      docker:
+        dockerfile: Dockerfile
+
+deploy:
+  kubeContext: minikube
+  kubectl: {}
+manifests:
+  rawYaml:
+    - k8s/daemonset.yaml

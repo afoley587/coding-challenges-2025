@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: custom-bridge-cni
+  namespace: kube-system
+  labels:
+    app: custom-bridge-cni
+spec:
+  selector:
+    matchLabels:
+      app: custom-bridge-cni
+  template:
+    metadata:
+      labels:
+        app: custom-bridge-cni
+    spec:
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+      serviceAccountName: cni-installer
+      containers:
+        - name: installer
+          image: afoley587/coding-challenges/custom-cni
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: cni-bin
+              mountPath: /host/opt/cni/bin
+            - name: cni-net-dir
+              mountPath: /host/etc/cni/net.d
+      restartPolicy: Always
+      volumes:
+        - name: cni-bin
+          hostPath:
+            path: /opt/cni/bin
+        - name: cni-net-dir
+          hostPath:
+            path: /etc/cni/net.d
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cni-installer
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cni-installer
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cni-installer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cni-installer
+subjects:
+  - kind: ServiceAccount
+    name: cni-installer
+    namespace: kube-system

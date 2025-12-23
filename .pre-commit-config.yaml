@@ -9,6 +9,9 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
+        args:
+          - --exclude-secrets
+          - '(CNI-178398eb400037331198c6f7|9fda512a44eb8d8fb6661ff925602c571494e583170e2b2bf666655159e975b4)'
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1
     hooks:
