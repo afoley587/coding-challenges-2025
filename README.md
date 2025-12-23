@@ -32,6 +32,10 @@ found across the internet and decided to achieve in
    See the
    [KubeRay - MLFlow project](./machine-learning/kuberay-mlflow/).
 
+1. December, 2025 - `custom-cni` challenges.
+   See the
+   [Custom CNI project](./kubernetes/custom-cni/).
+
 ## Contributing
 
 ### ASDF
